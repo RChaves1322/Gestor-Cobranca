@@ -44,6 +44,51 @@ export default async function handler(req, res) {
 
   const url  = req.url.replace(/^\/api/,'').split('?')[0];
   const params = Object.fromEntries(new URL(req.url, 'http://x').searchParams);
+
+  // ─── AUTENTICAÇÃO ───────────────────────────────────────────
+  // As credenciais de serviço permanecem somente no backend.
+  // O navegador recebe um access token do Supabase e o envia via Bearer.
+  if (url === '/auth/login' && req.method === 'POST') {
+    const email = String(body.email || '').trim();
+    const password = String(body.password || '');
+    if (!email || !password) return err(res, 'E-mail e senha são obrigatórios', 400);
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error || !data?.session) return err(res, 'E-mail ou senha inválidos', 401);
+    return res.json({
+      user: data.user,
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      expires_at: data.session.expires_at
+    });
+  }
+  if (url === '/auth/refresh' && req.method === 'POST') {
+    const refresh_token = String(body.refresh_token || '');
+    if (!refresh_token) return err(res, 'Sessão inválida', 401);
+    const { data, error } = await sb.auth.refreshSession({ refresh_token });
+    if (error || !data?.session) return err(res, 'Sessão expirada', 401);
+    return res.json({
+      user: data.user,
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      expires_at: data.session.expires_at
+    });
+  }
+
+  if (url === '/auth/me' && req.method === 'GET') {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (!token) return err(res, 'Não autenticado', 401);
+    const { data, error } = await sb.auth.getUser(token);
+    if (error || !data?.user) return err(res, 'Sessão inválida ou expirada', 401);
+    return res.json({ user: data.user });
+  }
+
+  // Todas as demais rotas da API exigem autenticação.
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token) return err(res, 'Não autenticado', 401);
+  const { data: authData, error: authError } = await sb.auth.getUser(token);
+  if (authError || !authData?.user) return err(res, 'Sessão inválida ou expirada', 401);
   let body = {};
   if (['POST','PUT','PATCH'].includes(req.method)) {
     try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {}; } catch {}

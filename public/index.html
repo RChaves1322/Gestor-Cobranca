@@ -1355,7 +1355,7 @@ async function renderDash(){
           </div></td>
         </tr>`).join('')}</tbody></table>`;
     atualizarBadge();
-  }catch(e){toast('Erro ao carregar painel','err');}
+  }catch(e){console.error('[GestorCob] erro no painel:',e);toast(e?.message||'Erro ao carregar painel','err');}
 }
 
 /* ── CLIENTES ── */
@@ -3345,13 +3345,17 @@ async function dpLimparTudo(){
 
 /* ── SIDEBAR MOBILE ── */
 function openSidebar(){
-  document.getElementById('sidebar').classList.add('open');
-  document.getElementById('sidebar-overlay').classList.add('open');
+  const sidebar=document.getElementById('sidebar');
+  const overlay=document.getElementById('sidebar-overlay');
+  if(sidebar) sidebar.classList.add('open');
+  if(overlay) overlay.classList.add('open');
   document.body.style.overflow='hidden';
 }
 function closeSidebar(){
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('sidebar-overlay').classList.remove('open');
+  const sidebar=document.getElementById('sidebar');
+  const overlay=document.getElementById('sidebar-overlay');
+  if(sidebar) sidebar.classList.remove('open');
+  if(overlay) overlay.classList.remove('open');
   document.body.style.overflow='';
 }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeSidebar(); });

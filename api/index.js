@@ -1,8 +1,24 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Cliente ADMIN: usado somente para dados do sistema.
+// persistSession=false evita que um login de usuário substitua o
+// Authorization do cliente com o JWT do usuário e faça as consultas
+// de dados deixarem de usar a chave secreta.
+const serviceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_KEY;
+
 const sb = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
+  serviceKey,
+  { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
+);
+
+// Cliente separado para autenticação. Use a chave publicável/anon aqui.
+// Nunca use SUPABASE_SERVICE_KEY/SUPABASE_SECRET_KEY no navegador.
+const authKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY;
+const sbAuth = createClient(
+  process.env.SUPABASE_URL,
+  authKey,
+  { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
 );
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -61,7 +77,7 @@ export default async function handler(req, res) {
     const email = String(body.email || '').trim();
     const password = String(body.password || '');
     if (!email || !password) return err(res, 'E-mail e senha são obrigatórios', 400);
-    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    const { data, error } = await sbAuth.auth.signInWithPassword({ email, password });
     if (error || !data?.session) return err(res, 'E-mail ou senha inválidos', 401);
     return res.json({
       user: data.user,
@@ -73,7 +89,7 @@ export default async function handler(req, res) {
   if (url === '/auth/refresh' && req.method === 'POST') {
     const refresh_token = String(body.refresh_token || '');
     if (!refresh_token) return err(res, 'Sessão inválida', 401);
-    const { data, error } = await sb.auth.refreshSession({ refresh_token });
+    const { data, error } = await sbAuth.auth.refreshSession({ refresh_token });
     if (error || !data?.session) return err(res, 'Sessão expirada', 401);
     return res.json({
       user: data.user,
@@ -87,7 +103,7 @@ export default async function handler(req, res) {
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
     if (!token) return err(res, 'Não autenticado', 401);
-    const { data, error } = await sb.auth.getUser(token);
+    const { data, error } = await sbAuth.auth.getUser(token);
     if (error || !data?.user) return err(res, 'Sessão inválida ou expirada', 401);
     return res.json({ user: data.user });
   }
@@ -96,7 +112,7 @@ export default async function handler(req, res) {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   if (!token) return err(res, 'Não autenticado', 401);
-  const { data: authData, error: authError } = await sb.auth.getUser(token);
+  const { data: authData, error: authError } = await sbAuth.auth.getUser(token);
   if (authError || !authData?.user) return err(res, 'Sessão inválida ou expirada', 401);
   // ─── SERVIDORES ───────────────────────────────────────────────
   if (url === '/servidores') {
@@ -279,15 +295,48 @@ export default async function handler(req, res) {
     await marcarVencidos();
     const hoje = new Date().toISOString().slice(0,10);
     const mesRef = hoje.slice(0,7);
-    const { count:ativos } = await sb.from('clientes').select('*',{count:'exact',head:true}).eq('status','ativo');
-    const { data:doMes } = await sb.from('cobrancas').select('*').eq('mes_ref',mesRef);
+
+    const ativosRes = await sb.from('clientes')
+      .select('*', { count:'exact', head:true })
+      .eq('status','ativo');
+    if (ativosRes.error) {
+      console.error('[dashboard] clientes:', ativosRes.error);
+      return err(res, `Erro ao consultar clientes: ${ativosRes.error.message}`, 500);
+    }
+
+    const cobRes = await sb.from('cobrancas')
+      .select('*')
+      .eq('mes_ref', mesRef);
+    if (cobRes.error) {
+      console.error('[dashboard] cobrancas:', cobRes.error);
+      return err(res, `Erro ao consultar cobranças: ${cobRes.error.message}`, 500);
+    }
+
+    const ativos = ativosRes.count || 0;
+    const doMes = cobRes.data || [];
     return res.json({
       ativos,
-      totalMes:  doMes.reduce((s,c)=>s+parseFloat(c.valor),0),
-      recebido:  doMes.filter(c=>c.status==='pago').reduce((s,c)=>s+parseFloat(c.valor_pago||c.valor),0),
+      totalMes:  doMes.reduce((s,c)=>s+parseFloat(c.valor || 0),0),
+      recebido:  doMes.filter(c=>c.status==='pago').reduce((s,c)=>s+parseFloat(c.valor_pago||c.valor||0),0),
       pendentes: doMes.filter(c=>c.status==='pendente').length,
       vencidas:  doMes.filter(c=>c.status==='vencido').length,
       mesRef, doMes
+    });
+  }
+
+  // Diagnóstico protegido: não expõe chaves, apenas confirma a conexão e contagens.
+  if (url === '/diagnostico' && req.method === 'GET') {
+    const c = await sb.from('clientes').select('*', { count:'exact', head:true });
+    const cb = await sb.from('cobrancas').select('*', { count:'exact', head:true });
+    return res.json({
+      ok: !c.error && !cb.error,
+      ambiente: {
+        supabaseUrl: Boolean(process.env.SUPABASE_URL),
+        serviceKey: Boolean(serviceKey),
+        publishableKey: Boolean(authKey)
+      },
+      clientes: { count:c.count || 0, error:c.error?.message || null },
+      cobrancas: { count:cb.count || 0, error:cb.error?.message || null }
     });
   }
 

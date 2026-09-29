@@ -43,3 +43,17 @@ gestorcob-vercel/
 ├── vercel.json           ← Configuração de roteamento
 └── package.json
 ```
+
+## Deploy Vercel + Supabase
+
+Este projeto foi preparado para rodar com frontend estático em `public/` e API serverless em `api/index.js`.
+
+Na Vercel, configure as variáveis de ambiente:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_KEY`
+
+A `SUPABASE_SERVICE_KEY` deve ser uma Secret Key (`sb_secret_...`) ou a chave `service_role` legada, e nunca deve ser exposta no frontend.
+
+Não configure `dist` como Output Directory: este projeto não usa Vite para gerar uma pasta `dist`.
+

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Sistema de Gestão de Cobranças IPTV",
   "scripts": {
-    "dev": "npx vercel dev",
+    "dev": "vercel dev",
     "build": "echo ok"
   },
   "dependencies": {

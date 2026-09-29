@@ -3108,9 +3108,29 @@ async function iptvConfirmar(){
   btn.disabled = true;
   btn.innerHTML = '<i class="ti ti-loader"></i> Importando...';
   try {
-    const r = await api('POST', '/api/importar-clientes-historico', { texto: document.getElementById('iptv-paste').value });
+    // Envia pequenos lotes para evitar timeout da função serverless da Vercel.
+    const textoOriginal = document.getElementById('iptv-paste').value.trim();
+    const linhasOriginais = textoOriginal.split(/\r?\n/).map(l => l.replace(/\r/g,''));
+    let headerIdx = linhasOriginais.findIndex((l,i) => i < 5 && l.toLowerCase().includes('cliente') && l.toLowerCase().includes('ativ'));
+    if (headerIdx < 0) headerIdx = 0;
+    const headerLinha = linhasOriginais[headerIdx] || 'Cliente\tAtivo\tServidor\tMensal\tDia\tObs';
+    const linhasClientes = iptvLinhas.map(cols => cols.join('\t'));
+    const tamanhoLote = 8;
+    const total = { clientesNovos:0, clientesAtualizados:0, totalCobrancasCriadas:0, totalCobrancasPagas:0 };
+
+    for (let i = 0; i < linhasClientes.length; i += tamanhoLote) {
+      const fim = Math.min(i + tamanhoLote, linhasClientes.length);
+      btn.innerHTML = `<i class="ti ti-loader"></i> Importando ${fim}/${linhasClientes.length}...`;
+      const textoLote = [headerLinha, ...linhasClientes.slice(i, fim)].join('\n');
+      const r = await api('POST', '/api/importar-clientes-historico', { texto: textoLote });
+      total.clientesNovos += r.clientesNovos || 0;
+      total.clientesAtualizados += r.clientesAtualizados || 0;
+      total.totalCobrancasCriadas += r.totalCobrancasCriadas || 0;
+      total.totalCobrancasPagas += r.totalCobrancasPagas || 0;
+    }
+
     closeOv('ov-iptv');
-    toast(`✓ ${r.clientesNovos} cliente(s) criado(s), ${r.clientesAtualizados} atualizado(s), ${r.totalCobrancasCriadas} cobrança(s) importada(s)!`);
+    toast(`✓ ${total.clientesNovos} cliente(s) criado(s), ${total.clientesAtualizados} atualizado(s), ${total.totalCobrancasCriadas} cobrança(s) importada(s)!`);
     renderClientes();
   } catch(e) {
     toast('Erro ao importar: ' + e.message, 'err');
@@ -3118,7 +3138,6 @@ async function iptvConfirmar(){
     btn.innerHTML = '<i class="ti ti-upload"></i> Importar';
   }
 }
-
 
 async function limparClientesCobr(){
   if(!confirm('⚠️ Isso vai APAGAR todos os clientes e cobranças permanentemente.\n\nTem certeza?')) return;

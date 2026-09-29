@@ -37,6 +37,31 @@ CREATE TABLE IF NOT EXISTS cobrancas (
   criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Recebimentos históricos
+-- Cada evento DATA + Recebido=Sim é preservado individualmente.
+-- Não usar mes_ref como chave de cobrança: pode haver vários recebimentos no mesmo mês.
+CREATE TABLE IF NOT EXISTS recebimentos (
+  id TEXT PRIMARY KEY,
+  cliente_id TEXT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  cliente_nome TEXT NOT NULL,
+  servidor TEXT,
+  data_recebimento DATE,
+  mes_ref TEXT,
+  valor_original NUMERIC(10,2) NOT NULL DEFAULT 0,
+  desconto NUMERIC(10,2) NOT NULL DEFAULT 0,
+  valor_recebido NUMERIC(10,2) NOT NULL DEFAULT 0,
+  descricao TEXT DEFAULT '',
+  pontos INTEGER NOT NULL DEFAULT 0,
+  bloco_origem INTEGER NOT NULL DEFAULT 0,
+  origem TEXT NOT NULL DEFAULT 'importacao_historico',
+  criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_recebimentos_mes_ref ON recebimentos(mes_ref);
+CREATE INDEX IF NOT EXISTS idx_recebimentos_data ON recebimentos(data_recebimento);
+CREATE INDEX IF NOT EXISTS idx_recebimentos_cliente ON recebimentos(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_recebimentos_servidor ON recebimentos(servidor);
+
 -- Índices úteis
 CREATE INDEX IF NOT EXISTS idx_cobrancas_mes_ref ON cobrancas(mes_ref);
 CREATE INDEX IF NOT EXISTS idx_cobrancas_status ON cobrancas(status);
@@ -125,6 +150,7 @@ ON CONFLICT(chave) DO NOTHING;
 ALTER TABLE servidores DISABLE ROW LEVEL SECURITY;
 ALTER TABLE clientes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE cobrancas DISABLE ROW LEVEL SECURITY;
+ALTER TABLE recebimentos DISABLE ROW LEVEL SECURITY;
 ALTER TABLE outras_vendas DISABLE ROW LEVEL SECURITY;
 ALTER TABLE despesas DISABLE ROW LEVEL SECURITY;
 ALTER TABLE tipos_receita DISABLE ROW LEVEL SECURITY;

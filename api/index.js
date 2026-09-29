@@ -4,17 +4,15 @@ import { createClient } from '@supabase/supabase-js';
 // persistSession=false evita que um login de usuário substitua o
 // Authorization do cliente com o JWT do usuário e faça as consultas
 // de dados deixarem de usar a chave secreta.
-const serviceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_KEY;
-
 const sb = createClient(
   process.env.SUPABASE_URL,
-  serviceKey,
+  process.env.SUPABASE_SERVICE_KEY,
   { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
 );
 
 // Cliente separado para autenticação. Use a chave publicável/anon aqui.
 // Nunca use SUPABASE_SERVICE_KEY/SUPABASE_SECRET_KEY no navegador.
-const authKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY;
+const authKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_KEY;
 const sbAuth = createClient(
   process.env.SUPABASE_URL,
   authKey,
@@ -213,8 +211,9 @@ export default async function handler(req, res) {
     return res.json(data);
   }
   if (url === '/cobrancas/meses') {
-    const { data } = await sb.from('cobrancas').select('mes_ref').order('mes_ref',{ascending:false});
-    const meses = [...new Set(data.map(r=>r.mes_ref))];
+    const { data:cobs } = await sb.from('cobrancas').select('mes_ref').order('mes_ref',{ascending:false});
+    const { data:rec } = await sb.from('recebimentos').select('mes_ref').not('mes_ref','is',null).order('mes_ref',{ascending:false});
+    const meses = [...new Set([...(cobs||[]).map(r=>r.mes_ref), ...(rec||[]).map(r=>r.mes_ref)].filter(Boolean))].sort().reverse();
     return res.json(meses);
   }
   if (url === '/cobrancas/inadimplentes') {
@@ -271,6 +270,18 @@ export default async function handler(req, res) {
       baixadas.push(nova);
       idx++;
     }
+    // Registra o valor efetivamente recebido no caixa. O valor é dividido nas parcelas acima;
+    // cada parcela recebe um registro idempotente para não duplicar em reenvios.
+    for (const b of baixadas) {
+      if (!b) continue;
+      await sb.from('recebimentos').upsert({
+        id:`rec_cob_${b.id}`, cliente_id:cliente.id, cliente_nome:cliente.nome, servidor:cliente.servidor,
+        data_recebimento:pago_em, mes_ref:String(pago_em).slice(0,7),
+        valor_original:parseFloat(b.valor||0), desconto:Math.max(0,parseFloat(b.valor||0)-parseFloat(b.valor_pago||0)),
+        valor_recebido:parseFloat(b.valor_pago||0), descricao:obs||'', pontos:0, bloco_origem:0,
+        origem:'cobranca_pagamento', criado:new Date().toISOString()
+      },{onConflict:'id'});
+    }
     return res.json({ ok:true, baixadas, total:valor_total });
   }
   if (url.match(/^\/cobrancas\/[^/]+\/pagar$/) && req.method === 'PUT') {
@@ -278,9 +289,18 @@ export default async function handler(req, res) {
     const { pago_em, valor_pago, obs_pagamento, servidor_novo } = body;
     const { data:cb } = await sb.from('cobrancas').select('*').eq('id',id).single();
     if (!cb) return err(res,'Cobrança não encontrada',404);
-    await sb.from('cobrancas').update({ status:'pago', pago_em, valor_pago:parseFloat(valor_pago), obs_pagamento:obs_pagamento||'' }).eq('id',id);
+    const valorPagoNum=parseFloat(valor_pago);
+    await sb.from('cobrancas').update({ status:'pago', pago_em, valor_pago:valorPagoNum, obs_pagamento:obs_pagamento||'' }).eq('id',id);
     if (servidor_novo && servidor_novo !== cb.servidor)
       await sb.from('clientes').update({ servidor:servidor_novo }).eq('id',cb.cliente_id);
+    const clienteRec=(await sb.from('clientes').select('nome,servidor').eq('id',cb.cliente_id).single()).data;
+    await sb.from('recebimentos').upsert({
+      id:`rec_cob_${cb.id}`, cliente_id:cb.cliente_id, cliente_nome:clienteRec?.nome||cb.cliente_nome,
+      servidor:servidor_novo||clienteRec?.servidor||cb.servidor, data_recebimento:pago_em, mes_ref:String(pago_em).slice(0,7),
+      valor_original:parseFloat(cb.valor||0), desconto:Math.max(0,parseFloat(cb.valor||0)-valorPagoNum),
+      valor_recebido:valorPagoNum, descricao:obs_pagamento||'', pontos:0, bloco_origem:0,
+      origem:'cobranca_pagamento', criado:new Date().toISOString()
+    },{onConflict:'id'});
     const { data } = await sb.from('cobrancas').select('*').eq('id',id).single();
     return res.json(data);
   }
@@ -295,48 +315,19 @@ export default async function handler(req, res) {
     await marcarVencidos();
     const hoje = new Date().toISOString().slice(0,10);
     const mesRef = hoje.slice(0,7);
-
-    const ativosRes = await sb.from('clientes')
-      .select('*', { count:'exact', head:true })
-      .eq('status','ativo');
-    if (ativosRes.error) {
-      console.error('[dashboard] clientes:', ativosRes.error);
-      return err(res, `Erro ao consultar clientes: ${ativosRes.error.message}`, 500);
-    }
-
-    const cobRes = await sb.from('cobrancas')
-      .select('*')
-      .eq('mes_ref', mesRef);
-    if (cobRes.error) {
-      console.error('[dashboard] cobrancas:', cobRes.error);
-      return err(res, `Erro ao consultar cobranças: ${cobRes.error.message}`, 500);
-    }
-
-    const ativos = ativosRes.count || 0;
-    const doMes = cobRes.data || [];
+    const { count:ativos } = await sb.from('clientes').select('*',{count:'exact',head:true}).eq('status','ativo');
+    const { data:doMes } = await sb.from('cobrancas').select('*').eq('mes_ref',mesRef).order('vencimento');
+    const { data:recebMes } = await sb.from('recebimentos').select('id,cliente_id,cliente_nome,servidor,data_recebimento,valor_recebido').eq('mes_ref',mesRef);
+    const recebido= (recebMes||[]).reduce((s,r)=>s+parseFloat(r.valor_recebido||0),0);
     return res.json({
-      ativos,
-      totalMes:  doMes.reduce((s,c)=>s+parseFloat(c.valor || 0),0),
-      recebido:  doMes.filter(c=>c.status==='pago').reduce((s,c)=>s+parseFloat(c.valor_pago||c.valor||0),0),
-      pendentes: doMes.filter(c=>c.status==='pendente').length,
-      vencidas:  doMes.filter(c=>c.status==='vencido').length,
-      mesRef, doMes
-    });
-  }
-
-  // Diagnóstico protegido: não expõe chaves, apenas confirma a conexão e contagens.
-  if (url === '/diagnostico' && req.method === 'GET') {
-    const c = await sb.from('clientes').select('*', { count:'exact', head:true });
-    const cb = await sb.from('cobrancas').select('*', { count:'exact', head:true });
-    return res.json({
-      ok: !c.error && !cb.error,
-      ambiente: {
-        supabaseUrl: Boolean(process.env.SUPABASE_URL),
-        serviceKey: Boolean(serviceKey),
-        publishableKey: Boolean(authKey)
-      },
-      clientes: { count:c.count || 0, error:c.error?.message || null },
-      cobrancas: { count:cb.count || 0, error:cb.error?.message || null }
+      ativos:ativos||0,
+      totalMes:(doMes||[]).reduce((s,c)=>s+parseFloat(c.valor||0),0),
+      recebido,
+      pendentes:(doMes||[]).filter(c=>c.status==='pendente').length,
+      vencidas:(doMes||[]).filter(c=>c.status==='vencido').length,
+      mesRef,
+      doMes:doMes||[],
+      recebimentosMes:recebMes||[]
     });
   }
 
@@ -345,58 +336,72 @@ export default async function handler(req, res) {
     await marcarVencidos();
     const { de, ate } = params;
     const { data:todasCobs } = await sb.from('cobrancas').select('*');
+    const { data:todosReceb } = await sb.from('recebimentos').select('*').not('mes_ref','is',null);
     const { data:todasOv }   = await sb.from('outras_vendas').select('*');
     const { data:todasDp }   = await sb.from('despesas').select('*');
+
+    const cobs=todasCobs||[], receb=todosReceb||[], ovs0=todasOv||[], dps0=todasDp||[];
     const mesesSet = new Set();
-    todasCobs.forEach(r=>r.mes_ref && mesesSet.add(r.mes_ref));
-    todasOv.forEach(r=>r.mes_ref && mesesSet.add(r.mes_ref));
-    todasDp.forEach(r=>r.mes_ref && mesesSet.add(r.mes_ref));
-    // Adicionar meses com caixa (pago_em)
-    todasCobs.filter(c=>c.status==='pago'&&c.pago_em).forEach(c=>mesesSet.add(c.pago_em.slice(0,7)));
+    cobs.forEach(r=>r.mes_ref && mesesSet.add(r.mes_ref));
+    receb.forEach(r=>r.mes_ref && mesesSet.add(r.mes_ref));
+    ovs0.forEach(r=>r.mes_ref && mesesSet.add(r.mes_ref));
+    dps0.forEach(r=>r.mes_ref && mesesSet.add(r.mes_ref));
+
     const meses = [...mesesSet].sort();
-    // Caixa por mês (data do pagamento)
-    const caixaPorMes = {};
-    todasCobs.filter(c=>c.status==='pago'&&c.pago_em).forEach(c=>{
-      const m = c.pago_em.slice(0,7);
-      caixaPorMes[m] = (caixaPorMes[m]||0) + parseFloat(c.valor_pago||c.valor);
-    });
-    const resultado = [];
-    for (const mr of meses) {
-      if (de && mr < de) continue;
-      if (ate && mr > ate) continue;
-      const cobs = todasCobs.filter(c=>c.mes_ref===mr);
-      const em_aberto = cobs.filter(c=>c.status==='pendente').reduce((s,c)=>s+parseFloat(c.valor),0);
-      const atrasado  = cobs.filter(c=>c.status==='vencido').reduce((s,c)=>s+parseFloat(c.valor),0);
-      const totalMensalidade = cobs.reduce((s,c)=>s+parseFloat(c.valor),0);
-      const recebidoMensalidade = caixaPorMes[mr]||0;
-      const porServidor = {};
-      cobs.forEach(c=>{
-        if (!porServidor[c.servidor]) porServidor[c.servidor]={qtd:0,valor:0};
-        porServidor[c.servidor].qtd++;
-        porServidor[c.servidor].valor+=parseFloat(c.valor);
+    const resultado=[];
+    for(const mr of meses){
+      if(de && mr<de) continue;
+      if(ate && mr>ate) continue;
+      const cobsMes=cobs.filter(c=>c.mes_ref===mr);
+      const recebMes=receb.filter(r=>r.mes_ref===mr);
+      const em_aberto=cobsMes.filter(c=>c.status==='pendente').reduce((s,c)=>s+parseFloat(c.valor||0),0);
+      const atrasado=cobsMes.filter(c=>c.status==='vencido').reduce((s,c)=>s+parseFloat(c.valor||0),0);
+      const totalCobrancas=cobsMes.reduce((s,c)=>s+parseFloat(c.valor||0),0);
+      const recebidoMensalidade=recebMes.reduce((s,r)=>s+parseFloat(r.valor_recebido||0),0);
+      const porServidor={};
+      recebMes.forEach(r=>{
+        const srv=r.servidor||'Sem servidor';
+        if(!porServidor[srv]) porServidor[srv]={qtd:0,valor:0};
+        porServidor[srv].qtd++;
+        porServidor[srv].valor+=parseFloat(r.valor_recebido||0);
       });
-      const ovs = todasOv.filter(r=>r.mes_ref===mr);
-      const outrasReceitas = ovs.reduce((s,r)=>s+parseFloat(r.total),0);
-      const dps = todasDp.filter(r=>r.mes_ref===mr);
-      const totalDespesas = dps.reduce((s,r)=>s+parseFloat(r.total),0);
-      const receitaTotal = recebidoMensalidade + outrasReceitas;
-      const lucroLiquido = receitaTotal - totalDespesas;
+      const ovs=ovs0.filter(r=>r.mes_ref===mr);
+      const outrasReceitas=ovs.reduce((s,r)=>s+parseFloat(r.total||0),0);
+      const dps=dps0.filter(r=>r.mes_ref===mr);
+      const totalDespesas=dps.reduce((s,r)=>s+parseFloat(r.total||0),0);
+      const receitaTotal=recebidoMensalidade+outrasReceitas;
+      const lucroLiquido=receitaTotal-totalDespesas;
+      const clientesReceberam=[...new Set(recebMes.map(r=>r.cliente_id))].length;
+      const total=totalCobrancas || (recebidoMensalidade+em_aberto+atrasado);
       resultado.push({
-        mes_ref:mr, recebido:recebidoMensalidade, em_aberto, atrasado, total:totalMensalidade,
-        outras_receitas:outrasReceitas, despesas:totalDespesas,
-        receita_total:receitaTotal, lucro_liquido:lucroLiquido,
-        clientes_ativos:[...new Set(cobs.filter(c=>c.status==='pago'||c.status==='vencido').map(c=>c.cliente_id))].length,
-        por_servidor:porServidor
+        mes_ref:mr,
+        recebido:recebidoMensalidade,
+        em_aberto,
+        atrasado,
+        total,
+        outras_receitas:outrasReceitas,
+        despesas:totalDespesas,
+        receita_total:receitaTotal,
+        lucro_liquido:lucroLiquido,
+        clientes_ativos:clientesReceberam,
+        por_servidor:porServidor,
+        qtd_recebimentos:recebMes.length,
+        qtd_recebimentos_sem_data:0
       });
     }
-    const totais = resultado.reduce((acc,r)=>({
-      recebido:acc.recebido+r.recebido, em_aberto:acc.em_aberto+r.em_aberto,
-      atrasado:acc.atrasado+r.atrasado, total:acc.total+r.total,
-      outras_receitas:acc.outras_receitas+r.outras_receitas, despesas:acc.despesas+r.despesas,
-      receita_total:acc.receita_total+r.receita_total, lucro_liquido:acc.lucro_liquido+r.lucro_liquido,
+    const totais=resultado.reduce((acc,r)=>({
+      recebido:acc.recebido+r.recebido,
+      em_aberto:acc.em_aberto+r.em_aberto,
+      atrasado:acc.atrasado+r.atrasado,
+      total:acc.total+r.total,
+      outras_receitas:acc.outras_receitas+r.outras_receitas,
+      despesas:acc.despesas+r.despesas,
+      receita_total:acc.receita_total+r.receita_total,
+      lucro_liquido:acc.lucro_liquido+r.lucro_liquido,
       clientes_ativos:Math.max(acc.clientes_ativos,r.clientes_ativos),
-    }),{recebido:0,em_aberto:0,atrasado:0,total:0,outras_receitas:0,despesas:0,receita_total:0,lucro_liquido:0,clientes_ativos:0});
-    return res.json({ meses:resultado.reverse(), totais });
+      qtd_recebimentos:acc.qtd_recebimentos+r.qtd_recebimentos
+    }),{recebido:0,em_aberto:0,atrasado:0,total:0,outras_receitas:0,despesas:0,receita_total:0,lucro_liquido:0,clientes_ativos:0,qtd_recebimentos:0});
+    return res.json({meses:resultado.reverse(),totais});
   }
 
   // ─── CONFIGURAÇÕES ────────────────────────────────────────────
@@ -584,8 +589,10 @@ export default async function handler(req, res) {
 
   // ─── LIMPEZA GERAL ────────────────────────────────────────────
   if (url === '/limpar-clientes-cobrancas' && req.method==='DELETE') {
+    await sb.from('recebimentos').delete().neq('id','_');
     await sb.from('cobrancas').delete().neq('id','_');
     await sb.from('clientes').delete().neq('id','_');
+    await sb.from('servidores').delete().neq('id','_');
     return res.json({ ok:true });
   }
 
@@ -603,12 +610,21 @@ export default async function handler(req, res) {
   }
 
   // ─── IMPORTAR CLIENTES + HISTÓRICO ────────────────────────────
+  // Importa os clientes e PRESERVA CADA RECEBIMENTO como um registro
+  // independente. Não usamos a posição DATA/DATA2... como mês de referência,
+  // pois esses campos são eventos de pagamento e podem conter vários
+  // pagamentos no mesmo mês/data.
   if (url === '/importar-clientes-historico' && req.method==='POST') {
     const { texto } = body;
     if (!texto?.trim()) return err(res,'Texto vazio');
 
     const pad2=n=>String(n).padStart(2,'0');
-    const parseValor=s=>s ? parseFloat(String(s).replace(/R\$\s?/g,'').replace(/\./g,'').replace(',','.').trim())||0 : 0;
+    const parseValor=s=>{
+      if (s==null || s==='') return 0;
+      const raw=String(s).replace(/R\$\s?/g,'').replace(/\s/g,'').trim();
+      if (!raw || raw==='-') return 0;
+      return parseFloat(raw.replace(/\./g,'').replace(',','.'))||0;
+    };
     const parseDataBR=s=>{
       if(!s) return null;
       s=String(s).trim();
@@ -625,21 +641,17 @@ export default async function handler(req, res) {
     const dataLinhas=(headerIdx>=0 ? linhasBrutas.slice(headerIdx+1) : linhasBrutas)
       .filter(l=>l.trim() && !(/^data\b/i.test(l.trim()) && /recebido/i.test(l)));
 
-    const hojeISO=new Date().toISOString().slice(0,10);
-    let clientesNovos=0, clientesAtualizados=0, totalCobrancasCriadas=0, totalCobrancasPagas=0;
+    let clientesNovos=0, clientesAtualizados=0;
+    let totalRecebimentos=0, totalRecebimentosComData=0, totalRecebimentosSemData=0, totalValorRecebido=0;
     const processados=[];
     const erros=[];
 
-    // Uma chamada desta rota recebe apenas um lote pequeno enviado pelo frontend.
-    // Cada linha é isolada para que uma falha não interrompa as demais.
     const processarLinha = async (linha, numeroLinha) => {
       try {
         const cols=linha.split('\t');
         if(cols.length<6) throw new Error(`Linha com apenas ${cols.length} colunas; esperado pelo menos 6`);
-
         const nomeRaw=(cols[0]||'').trim();
         if(!nomeRaw) throw new Error('Nome do cliente vazio');
-
         const ativoRaw=(cols[1]||'').trim().toLowerCase();
         const servidorFinal=normalizarServidor((cols[2]||'').trim())||'';
         const valorMensal=parseValor(cols[3]);
@@ -655,116 +667,81 @@ export default async function handler(req, res) {
           if(eSrv) throw eSrv;
         }
 
-        // A identidade do cliente é NOME + SERVIDOR.
-        // Isso preserva registros como "Genivaldo ..." e "Genivaldo ... 002".
         let clienteExist=null;
-        const buscaExata=await sb.from('clientes')
-          .select('*')
-          .eq('nome',nomeRaw)
-          .eq('servidor',servidorFinal)
-          .limit(1);
+        const buscaExata=await sb.from('clientes').select('*').eq('nome',nomeRaw).eq('servidor',servidorFinal).limit(1);
         if(buscaExata.error) throw buscaExata.error;
         clienteExist=buscaExata.data?.[0]||null;
-
-        // Compatibilidade com clientes antigos que ainda estão sem servidor.
         if(!clienteExist) {
           const buscaNome=await sb.from('clientes').select('*').eq('nome',nomeRaw).limit(2);
           if(buscaNome.error) throw buscaNome.error;
-          if((buscaNome.data||[]).length===1 && !(buscaNome.data[0].servidor||'').trim()) {
-            clienteExist=buscaNome.data[0];
-          }
+          if((buscaNome.data||[]).length===1 && !(buscaNome.data[0].servidor||'').trim()) clienteExist=buscaNome.data[0];
         }
 
         let cliente;
         if(clienteExist) {
-          const novoValor=valorMensal||clienteExist.valor||0;
-          const { data, error:eUpd }=await sb.from('clientes')
-            .update({ servidor:servidorFinal, dia, valor:novoValor, status, obs })
-            .eq('id',clienteExist.id)
-            .select('*').single();
+          const { data, error:eUpd }=await sb.from('clientes').update({
+            servidor:servidorFinal, dia, valor:valorMensal||clienteExist.valor||0, status, obs
+          }).eq('id',clienteExist.id).select('*').single();
           if(eUpd) throw eUpd;
-          cliente=data;
-          clientesAtualizados++;
+          cliente=data; clientesAtualizados++;
         } else {
           const novo={ id:uid(), nome:nomeRaw, celular:'', servidor:servidorFinal, dia, valor:valorMensal||0, status, obs, criado:new Date().toISOString() };
           const { data, error:eIns }=await sb.from('clientes').insert(novo).select('*').single();
           if(eIns) throw eIns;
-          cliente=data;
-          clientesNovos++;
+          cliente=data; clientesNovos++;
         }
 
-        let anoBase=new Date().getFullYear();
-        let blocoStart=6, mesIdx=0;
-        let criadasLocal=0, pagasLocal=0;
-
-        // O layout da planilha é fixo: 12 blocos de 5 colunas.
-        // O mês de referência é a posição do bloco (Jan..Dez) e NÃO a data de pagamento.
-        // A data é usada somente como data em que o pagamento ocorreu.
+        let blocoStart=6, bloco=0;
         while(blocoStart+4<cols.length) {
+          bloco++;
           const dataStr=(cols[blocoStart]||'').trim();
           const recebidoStr=(cols[blocoStart+1]||'').trim().toLowerCase();
+          const descStr=(cols[blocoStart+2]||'').trim();
+          const pontos=parseInt(cols[blocoStart+3],10)||0;
           const valorStr=(cols[blocoStart+4]||'').trim();
-          const mesBlocoNum=(mesIdx%12)+1;
-          const anoBlocoNum=anoBase+Math.floor(mesIdx/12);
-          mesIdx++;
           blocoStart+=5;
 
-          const dataVazia=!dataStr||dataStr==='-';
-          const recebidoVazio=!recebidoStr||recebidoStr==='-';
-          if(dataVazia&&recebidoVazio) continue;
-          if(dataVazia&&recebidoStr==='0') continue;
+          if(recebidoStr!=='sim' && recebidoStr!=='s') continue;
 
-          const isPago=recebidoStr==='sim'||recebidoStr==='s';
-          const isNao=recebidoStr==='não'||recebidoStr==='nao';
-          if(dataVazia&&!isPago&&!isNao) continue;
-
-          const valorCobranca=parseValor(valorStr)||valorMensal;
-          const mesRef=`${anoBlocoNum}-${pad2(mesBlocoNum)}`;
-          const diaVenc=Math.min(dia,new Date(anoBlocoNum,mesBlocoNum,0).getDate());
-          const vencimentoISO=`${anoBlocoNum}-${pad2(mesBlocoNum)}-${pad2(diaVenc)}`;
-          const statusCob=isPago?'pago':(vencimentoISO<hojeISO?'vencido':'pendente');
           const dataISO=parseDataBR(dataStr);
+          const valorRecebido=parseValor(valorStr);
+          const desconto=parseValor(descStr);
+          const valorOriginal=desconto>0 ? valorRecebido+desconto : Math.max(valorMensal||0, valorRecebido);
+          const mesRef=dataISO ? dataISO.slice(0,7) : null;
+          const receiptId=`rec_${cliente.id}_${String(bloco).padStart(2,'0')}`;
 
-          const busca=await sb.from('cobrancas').select('id').eq('cliente_id',cliente.id).eq('mes_ref',mesRef).limit(1);
-          if(busca.error) throw busca.error;
+          const { error:eRec }=await sb.from('recebimentos').upsert({
+            id:receiptId,
+            cliente_id:cliente.id,
+            cliente_nome:nomeRaw,
+            servidor:servidorFinal,
+            data_recebimento:dataISO,
+            mes_ref:mesRef,
+            valor_original:valorOriginal,
+            desconto,
+            valor_recebido:valorRecebido,
+            descricao:descStr,
+            pontos,
+            bloco_origem:bloco,
+            origem:'importacao_historico',
+            criado:new Date().toISOString()
+          },{onConflict:'id'});
+          if(eRec) throw eRec;
 
-          if(busca.data?.[0]) {
-            const { error:eUpdCob }=await sb.from('cobrancas').update({
-              cliente_nome:nomeRaw,
-              servidor:servidorFinal,
-              valor:valorCobranca,
-              vencimento:vencimentoISO,
-              status:statusCob,
-              pago_em:isPago&&dataISO?dataISO:null,
-              valor_pago:isPago?valorCobranca:null
-            }).eq('id',busca.data[0].id);
-            if(eUpdCob) throw eUpdCob;
-          } else {
-            const { error:eInsCob }=await sb.from('cobrancas').insert({
-              id:uid(), cliente_id:cliente.id, cliente_nome:nomeRaw, servidor:servidorFinal,
-              valor:valorCobranca, vencimento:vencimentoISO, mes_ref:mesRef,
-              status:statusCob, pago_em:isPago&&dataISO?dataISO:null,
-              valor_pago:isPago?valorCobranca:null, criado:new Date().toISOString()
-            });
-            if(eInsCob) throw eInsCob;
-            criadasLocal++;
-            if(isPago) pagasLocal++;
-          }
+          totalRecebimentos++;
+          totalValorRecebido+=valorRecebido;
+          if(dataISO) totalRecebimentosComData++; else totalRecebimentosSemData++;
         }
 
-        totalCobrancasCriadas+=criadasLocal;
-        totalCobrancasPagas+=pagasLocal;
-        return { ok:true, detalhe:{ indice:numeroLinha, nome:nomeRaw, servidor:servidorFinal, status } };
+        return {ok:true,detalhe:{indice:numeroLinha,nome:nomeRaw,servidor:servidorFinal,status}};
       } catch(e) {
-        return { ok:false, erro:{ indice:numeroLinha, nome:(linha.split('\t')[0]||'').trim(), mensagem:e?.message||String(e) } };
+        return {ok:false,erro:{indice:numeroLinha,nome:(linha.split('\t')[0]||'').trim(),mensagem:e?.message||String(e)}};
       }
     };
 
-    // Até 8 clientes em paralelo: reduz bastante o tempo sem sobrecarregar o Supabase.
     const resultados=await Promise.all(dataLinhas.map((linha,i)=>processarLinha(linha,i+1)));
     for(const r of resultados) {
-      if(r.ok) processados.push(r.detalhe);
-      else erros.push(r.erro);
+      if(r.ok) processados.push(r.detalhe); else erros.push(r.erro);
     }
 
     return res.json({
@@ -774,8 +751,10 @@ export default async function handler(req, res) {
       falhas:erros.length,
       clientesNovos,
       clientesAtualizados,
-      totalCobrancasCriadas,
-      totalCobrancasPagas,
+      totalRecebimentos,
+      totalRecebimentosComData,
+      totalRecebimentosSemData,
+      totalValorRecebido:Number(totalValorRecebido.toFixed(2)),
       processadosDetalhes:processados,
       erros
     });

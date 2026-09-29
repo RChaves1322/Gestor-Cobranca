@@ -1355,7 +1355,7 @@ async function renderDash(){
           </div></td>
         </tr>`).join('')}</tbody></table>`;
     atualizarBadge();
-  }catch(e){console.error('[GestorCob] erro no painel:',e);toast(e?.message||'Erro ao carregar painel','err');}
+  }catch(e){toast('Erro ao carregar painel','err');}
 }
 
 /* ── CLIENTES ── */
@@ -1687,7 +1687,7 @@ async function renderDistServidor(){
     el.innerHTML=`<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">${titulo}</div>`+
       distArr.map(([s,v])=>`
         <div class="dist-bar-wrap">
-          <div class="dist-bar-label"><span>${s}</span><span>${v.qtd} cobr. · ${fmtV(v.valor)}</span></div>
+          <div class="dist-bar-label"><span>${s}</span><span>${v.qtd} receb. · ${fmtV(v.valor)}</span></div>
           <div class="dist-bar"><div class="dist-bar-fill" style="width:${Math.round(v.qtd/maxQtd*100)}%"></div></div>
         </div>`).join('');
   }catch(e){el.innerHTML='<div style="color:var(--muted);font-size:13px">Erro ao carregar.</div>';}
@@ -3178,6 +3178,12 @@ function iptvNormServidor(s){
   return m[t.toLowerCase()]||t;
 }
 
+function iptvParseValor(s){
+  const raw=String(s??'').replace(/R\$\s?/g,'').replace(/\s/g,'').trim();
+  if(!raw||raw==='-') return 0;
+  return parseFloat(raw.replace(/\./g,'').replace(',','.'))||0;
+}
+
 async function iptvAuditarImportacao(linhas){
   const lista=await api('GET','/api/clientes');
   const mapa=new Map(lista.map(c=>[`${(c.nome||'').trim()}|||${iptvNormServidor(c.servidor)}`,c]));
@@ -3206,7 +3212,7 @@ async function iptvConfirmar(){
     const headerLinha=headerIdx>=0 ? linhasOriginais[headerIdx] : 'Cliente\tAtivo\tServidor\tMensal\tDia\tObs';
     const linhasClientes=iptvLinhas.map(cols=>cols.join('\t'));
     const tamanhoLote=8;
-    const total={clientesNovos:0,clientesAtualizados:0,totalCobrancasCriadas:0,totalCobrancasPagas:0};
+    const total={clientesNovos:0,clientesAtualizados:0,totalRecebimentos:0,totalRecebimentosComData:0,totalRecebimentosSemData:0,totalValorRecebido:0};
     const progress=document.getElementById('iptv-import-progress');
     const progressBar=document.getElementById('iptv-progress-bar');
     const progressTitle=document.getElementById('iptv-progress-title');
@@ -3238,8 +3244,10 @@ async function iptvConfirmar(){
       const r=await api('POST','/api/importar-clientes-historico',{texto:textoLote});
       total.clientesNovos+=r.clientesNovos||0;
       total.clientesAtualizados+=r.clientesAtualizados||0;
-      total.totalCobrancasCriadas+=r.totalCobrancasCriadas||0;
-      total.totalCobrancasPagas+=r.totalCobrancasPagas||0;
+      total.totalRecebimentos+=r.totalRecebimentos||0;
+      total.totalRecebimentosComData+=r.totalRecebimentosComData||0;
+      total.totalRecebimentosSemData+=r.totalRecebimentosSemData||0;
+      total.totalValorRecebido+=Number(r.totalValorRecebido||0);
       if(r.erros?.length){
         for(const er of r.erros){
           const idx=Number(er.indice)-1;
@@ -3268,8 +3276,10 @@ async function iptvConfirmar(){
         const r2=await api('POST','/api/importar-clientes-historico',{texto:[headerLinha,...retryCols.map(c=>c.join('\t'))].join('\n')});
         total.clientesNovos+=r2.clientesNovos||0;
         total.clientesAtualizados+=r2.clientesAtualizados||0;
-        total.totalCobrancasCriadas+=r2.totalCobrancasCriadas||0;
-        total.totalCobrancasPagas+=r2.totalCobrancasPagas||0;
+        total.totalRecebimentos+=r2.totalRecebimentos||0;
+        total.totalRecebimentosComData+=r2.totalRecebimentosComData||0;
+        total.totalRecebimentosSemData+=r2.totalRecebimentosSemData||0;
+        total.totalValorRecebido+=Number(r2.totalValorRecebido||0);
         falhas=(r2.erros||[]).map(er=>({cols:retryCols[(Number(er.indice)||1)-1]||[],mensagem:er.mensagem}));
       }
     }
@@ -3279,11 +3289,28 @@ async function iptvConfirmar(){
     progressPercent.textContent='100%';
     progressBar.style.width='100%';
     const auditoria=await iptvAuditarImportacao(iptvLinhas);
-    const ok=auditoria.faltando.length===0 && auditoria.statusDivergente.length===0 && falhas.length===0;
+    // Auditoria financeira da própria origem: cada bloco com Recebido=Sim
+    // precisa virar exatamente um recebimento, sem colapsar registros do mesmo mês.
+    let esperadoRec=0, esperadoComData=0, esperadoSemData=0, esperadoValor=0;
+    for(const cols of iptvLinhas){
+      for(let j=6;j+4<cols.length;j+=5){
+        const rec=String(cols[j+1]||'').trim().toLowerCase();
+        if(rec!=='sim'&&rec!=='s') continue;
+        esperadoRec++;
+        const dt=String(cols[j]||'').trim();
+        if(dt&&dt!=='-') esperadoComData++; else esperadoSemData++;
+        esperadoValor+=iptvParseValor(cols[j+4]||'');
+      }
+    }
+    const finOk=total.totalRecebimentos===esperadoRec &&
+      total.totalRecebimentosComData===esperadoComData &&
+      total.totalRecebimentosSemData===esperadoSemData &&
+      Math.abs(total.totalValorRecebido-esperadoValor)<0.01;
+    const ok=auditoria.faltando.length===0 && auditoria.statusDivergente.length===0 && falhas.length===0 && finOk;
 
     if(ok){
       progressTitle.textContent='✓ Importação concluída e conferida';
-      progressDetail.innerHTML=`<strong>${auditoria.encontrados}/${auditoria.totalFonte}</strong> clientes encontrados no banco • ${total.totalCobrancasCriadas} cobranças novas • ${total.totalCobrancasPagas} pagas`;
+      progressDetail.innerHTML=`<strong>${auditoria.encontrados}/${auditoria.totalFonte}</strong> clientes conferidos • <strong>${total.totalRecebimentos}</strong> recebimentos • <strong>${fmtV(total.totalValorRecebido)}</strong> recebidos${total.totalRecebimentosSemData?` • ${total.totalRecebimentosSemData} sem data`:''}`;
       btn.innerHTML='<i class="ti ti-check"></i> Concluído';
       setTimeout(()=>closeOv('ov-iptv'),900);
       toast(`✓ ${auditoria.encontrados} clientes conferidos. Nenhum ficou faltando.`);
@@ -3345,17 +3372,13 @@ async function dpLimparTudo(){
 
 /* ── SIDEBAR MOBILE ── */
 function openSidebar(){
-  const sidebar=document.getElementById('sidebar');
-  const overlay=document.getElementById('sidebar-overlay');
-  if(sidebar) sidebar.classList.add('open');
-  if(overlay) overlay.classList.add('open');
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-overlay').classList.add('open');
   document.body.style.overflow='hidden';
 }
 function closeSidebar(){
-  const sidebar=document.getElementById('sidebar');
-  const overlay=document.getElementById('sidebar-overlay');
-  if(sidebar) sidebar.classList.remove('open');
-  if(overlay) overlay.classList.remove('open');
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
   document.body.style.overflow='';
 }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeSidebar(); });

@@ -36,6 +36,52 @@ function err(res, msg, code=400) {
   return res.status(code).json({ erro: msg });
 }
 
+function parseCookies(req) {
+  const raw = req.headers?.cookie || '';
+  return Object.fromEntries(raw.split(';').map(v => v.trim()).filter(Boolean).map(v => {
+    const i = v.indexOf('=');
+    return [i >= 0 ? v.slice(0, i) : v, i >= 0 ? decodeURIComponent(v.slice(i + 1)) : ''];
+  }));
+}
+
+function cookieOptions(maxAge) {
+  const secure = process.env.VERCEL ? '; Secure' : '';
+  return `Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+}
+
+function setAuthCookies(res, session) {
+  const access = encodeURIComponent(session.access_token);
+  const refresh = encodeURIComponent(session.refresh_token);
+  res.setHeader('Set-Cookie', [
+    `gc_access=${access}; ${cookieOptions(session.expires_in || 3600)}`,
+    `gc_refresh=${refresh}; ${cookieOptions(60 * 60 * 24 * 30)}`
+  ]);
+}
+
+function clearAuthCookies(res) {
+  const secure = process.env.VERCEL ? '; Secure' : '';
+  res.setHeader('Set-Cookie', [
+    `gc_access=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`,
+    `gc_refresh=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`
+  ]);
+}
+
+async function requireUser(req, res) {
+  const cookies = parseCookies(req);
+  const bearer = (req.headers?.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  const token = bearer || cookies.gc_access;
+  if (!token) {
+    err(res, 'Não autenticado', 401);
+    return null;
+  }
+  const { data, error } = await sb.auth.getUser(token);
+  if (error || !data?.user) {
+    err(res, 'Sessão expirada', 401);
+    return null;
+  }
+  return data.user;
+}
+
 // ── Router manual (sem express, roda como serverless) ────────────
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -48,6 +94,43 @@ export default async function handler(req, res) {
   if (['POST','PUT','PATCH'].includes(req.method)) {
     try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {}; } catch {}
   }
+
+  // ─── AUTENTICAÇÃO ─────────────────────────────────────────────
+  if (url === '/auth/login' && req.method === 'POST') {
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+    if (!email || !password) return err(res, 'E-mail e senha são obrigatórios');
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error || !data?.session) return err(res, 'E-mail ou senha inválidos', 401);
+    setAuthCookies(res, data.session);
+    return res.json({ ok: true, user: { id: data.user.id, email: data.user.email } });
+  }
+
+  if (url === '/auth/me' && req.method === 'GET') {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    return res.json({ user: { id: user.id, email: user.email } });
+  }
+
+  if (url === '/auth/refresh' && req.method === 'POST') {
+    const cookies = parseCookies(req);
+    if (!cookies.gc_refresh) return err(res, 'Sessão expirada', 401);
+    const { data, error } = await sb.auth.refreshSession({ refresh_token: cookies.gc_refresh });
+    if (error || !data?.session) {
+      clearAuthCookies(res);
+      return err(res, 'Sessão expirada', 401);
+    }
+    setAuthCookies(res, data.session);
+    return res.json({ ok: true, user: { id: data.user.id, email: data.user.email } });
+  }
+
+  if (url === '/auth/logout' && req.method === 'POST') {
+    clearAuthCookies(res);
+    return res.json({ ok: true });
+  }
+
+  const user = await requireUser(req, res);
+  if (!user) return;
 
   // ─── SERVIDORES ───────────────────────────────────────────────
   if (url === '/servidores') {
@@ -518,12 +601,10 @@ export default async function handler(req, res) {
     const dataLinhas=linhasBrutas.slice(hi+1);
     let clientesNovos=0, clientesAtualizados=0, totalCobrancasCriadas=0, totalCobrancasPagas=0;
     const anoAtual=new Date().getFullYear(); const hojeISO=new Date().toISOString().slice(0,10);
-    // Processa em pequenos lotes para evitar timeout da Vercel e reduzir o tempo total da importação.
-    // Cada cliente continua sendo processado de forma sequencial internamente para preservar a consistência.
-    const processarLinha = async (linha) => {
+    for (const linha of dataLinhas) {
       const cols=linha.split('\t');
-      if(cols.length<6) return { clientesNovos:0, clientesAtualizados:0, totalCobrancasCriadas:0, totalCobrancasPagas:0 };
-      const nomeRaw=(cols[0]||'').trim(); if(!nomeRaw) return { clientesNovos:0, clientesAtualizados:0, totalCobrancasCriadas:0, totalCobrancasPagas:0 };
+      if(cols.length<6) continue;
+      const nomeRaw=(cols[0]||'').trim(); if(!nomeRaw) continue;
       const ativoRaw=(cols[1]||'').trim().toLowerCase();
       const servidor=(cols[2]||'').trim();
       const valorMensal=parseValor(cols[3]);
@@ -531,41 +612,26 @@ export default async function handler(req, res) {
       const obs=(cols[5]||'').trim();
       const status=ativoRaw==='sim'?'ativo':'inativo';
       const servidorFinal=normalizarServidor(servidor)||'';
-
-      if (servidorFinal) {
-        await sb.from('servidores').upsert(
-          { id:uid(), nome:servidorFinal, criado:new Date().toISOString() },
-          { onConflict:'nome', ignoreDuplicates:true }
-        );
-      }
-
-      const { data:clienteExist, error:clienteBuscaError } = await sb.from('clientes')
-        .select('*').eq('nome',nomeRaw).maybeSingle();
-      if (clienteBuscaError) throw clienteBuscaError;
-
+      // Garantir servidor
+      if (servidorFinal) await sb.from('servidores').upsert({ id:uid(), nome:servidorFinal, criado:new Date().toISOString() },{ onConflict:'nome', ignoreDuplicates:true });
+      // Cliente
+      const { data:clienteExist }=await sb.from('clientes').select('*').eq('nome',nomeRaw).maybeSingle();
       let cliente;
-      let clientesNovosLocal=0, clientesAtualizadosLocal=0;
       if (clienteExist) {
-        const novoValor=valorMensal||clienteExist.valor;
-        const { error } = await sb.from('clientes').update({ servidor:servidorFinal, dia, valor:novoValor, status, obs }).eq('id',clienteExist.id);
-        if (error) throw error;
-        cliente={ ...clienteExist, servidor:servidorFinal, dia, valor:novoValor };
-        clientesAtualizadosLocal=1;
+        await sb.from('clientes').update({ servidor:servidorFinal, dia, valor:valorMensal||clienteExist.valor, status, obs }).eq('id',clienteExist.id);
+        cliente={ ...clienteExist, servidor:servidorFinal, dia, valor:valorMensal||clienteExist.valor };
+        clientesAtualizados++;
       } else {
         const id=uid();
-        const { error } = await sb.from('clientes').insert({ id, nome:nomeRaw, celular:'', servidor:servidorFinal, dia, valor:valorMensal||0, status, obs, criado:new Date().toISOString() });
-        if (error) throw error;
+        await sb.from('clientes').insert({ id, nome:nomeRaw, celular:'', servidor:servidorFinal, dia, valor:valorMensal||0, status, obs, criado:new Date().toISOString() });
         cliente={ id, nome:nomeRaw, servidor:servidorFinal, dia, valor:valorMensal||0 };
-        clientesNovosLocal=1;
+        clientesNovos++;
       }
-
+      // Detectar anoBase
       let anoBase=anoAtual;
-      for(let b=6;b+4<cols.length;b+=5) {
-        const d=parseDataBR((cols[b]||'').trim());
-        if(d) { const a=parseInt(d.slice(0,4)); if(a>anoBase) anoBase=a; }
-      }
-
-      let blocoStart=6, mesIdx=0, criadasLocal=0, pagasLocal=0;
+      for(let b=6;b+4<cols.length;b+=5) { const d=parseDataBR((cols[b]||'').trim()); if(d) { const a=parseInt(d.slice(0,4)); if(a>anoBase) anoBase=a; } }
+      // Blocos mensais
+      let blocoStart=6, mesIdx=0;
       while(blocoStart+4<cols.length) {
         const dataStr=(cols[blocoStart]||'').trim();
         const recebidoStr=(cols[blocoStart+1]||'').trim().toLowerCase();
@@ -586,33 +652,15 @@ export default async function handler(req, res) {
         const vencimentoISO=`${anoBlocoNum}-${pad2(mesBlocoNum)}-${pad2(diaVenc)}`;
         const statusCob=isPago?'pago':vencimentoISO<hojeISO?'vencido':'pendente';
         const dataISO=parseDataBR(dataStr);
-        const { data:cobExist, error:cobBuscaError }=await sb.from('cobrancas').select('id').eq('cliente_id',cliente.id).eq('mes_ref',mesRef).maybeSingle();
-        if(cobBuscaError) throw cobBuscaError;
+        const { data:cobExist }=await sb.from('cobrancas').select('id').eq('cliente_id',cliente.id).eq('mes_ref',mesRef).maybeSingle();
         if (cobExist) {
-          const { error } = await sb.from('cobrancas').update({ servidor:servidorFinal, valor:valorCobranca, vencimento:vencimentoISO, status:statusCob, pago_em:isPago&&dataISO?dataISO:null, valor_pago:isPago?valorCobranca:null }).eq('id',cobExist.id);
-          if (error) throw error;
+          await sb.from('cobrancas').update({ servidor:servidorFinal, valor:valorCobranca, vencimento:vencimentoISO, status:statusCob, pago_em:isPago&&dataISO?dataISO:null, valor_pago:isPago?valorCobranca:null }).eq('id',cobExist.id);
         } else {
-          const { error } = await sb.from('cobrancas').insert({ id:uid(), cliente_id:cliente.id, cliente_nome:nomeRaw, servidor:servidorFinal, valor:valorCobranca, vencimento:vencimentoISO, mes_ref:mesRef, status:statusCob, pago_em:isPago&&dataISO?dataISO:null, valor_pago:isPago?valorCobranca:null, criado:new Date().toISOString() });
-          if (error) throw error;
-          criadasLocal++;
-          if(isPago) pagasLocal++;
+          await sb.from('cobrancas').insert({ id:uid(), cliente_id:cliente.id, cliente_nome:nomeRaw, servidor:servidorFinal, valor:valorCobranca, vencimento:vencimentoISO, mes_ref:mesRef, status:statusCob, pago_em:isPago&&dataISO?dataISO:null, valor_pago:isPago?valorCobranca:null, criado:new Date().toISOString() });
+          totalCobrancasCriadas++;
+          if(isPago) totalCobrancasPagas++;
         }
       }
-      return { clientesNovos:clientesNovosLocal, clientesAtualizados:clientesAtualizadosLocal, totalCobrancasCriadas:criadasLocal, totalCobrancasPagas:pagasLocal };
-    };
-
-    const resultados=[];
-    const tamanhoLote=8;
-    for(let i=0;i<dataLinhas.length;i+=tamanhoLote) {
-      const lote=dataLinhas.slice(i,i+tamanhoLote);
-      const loteResultados=await Promise.all(lote.map(processarLinha));
-      resultados.push(...loteResultados);
-    }
-    for(const r of resultados) {
-      clientesNovos+=r.clientesNovos;
-      clientesAtualizados+=r.clientesAtualizados;
-      totalCobrancasCriadas+=r.totalCobrancasCriadas;
-      totalCobrancasPagas+=r.totalCobrancasPagas;
     }
     return res.json({ ok:true, clientesNovos, clientesAtualizados, totalCobrancasCriadas, totalCobrancasPagas, erros:[] });
   }

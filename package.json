@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Sistema de Gestão de Cobranças IPTV",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "node server-local.js",
     "build": "echo ok"
   },
   "dependencies": {
@@ -12,6 +12,5 @@
   },
   "devDependencies": {
     "vite": "^8.3.1"
-  },
-  "type": "module"
+  }
 }

@@ -45,6 +45,15 @@ export default async function handler(req, res) {
   const url  = req.url.replace(/^\/api/,'').split('?')[0];
   const params = Object.fromEntries(new URL(req.url, 'http://x').searchParams);
 
+  // Parse do corpo ANTES das rotas de autenticação.
+  // O login/refresh também precisam acessar `body`; deixar a declaração
+  // depois dessas rotas causava ReferenceError e a Vercel devolvia
+  // uma resposta de erro em texto, quebrando o JSON no frontend.
+  let body = {};
+  if (['POST','PUT','PATCH'].includes(req.method)) {
+    try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {}; } catch { body = {}; }
+  }
+
   // ─── AUTENTICAÇÃO ───────────────────────────────────────────
   // As credenciais de serviço permanecem somente no backend.
   // O navegador recebe um access token do Supabase e o envia via Bearer.
@@ -89,11 +98,6 @@ export default async function handler(req, res) {
   if (!token) return err(res, 'Não autenticado', 401);
   const { data: authData, error: authError } = await sb.auth.getUser(token);
   if (authError || !authData?.user) return err(res, 'Sessão inválida ou expirada', 401);
-  let body = {};
-  if (['POST','PUT','PATCH'].includes(req.method)) {
-    try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {}; } catch {}
-  }
-
   // ─── SERVIDORES ───────────────────────────────────────────────
   if (url === '/servidores') {
     if (req.method === 'GET') {

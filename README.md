@@ -43,3 +43,7 @@ gestorcob-vercel/
 ├── vercel.json           ← Configuração de roteamento
 └── package.json
 ```
+
+
+## Correção de login
+O endpoint de login agora interpreta o corpo da requisição antes de acessar `/auth/login` e `/auth/refresh`, evitando erro 500/JSON inválido na Vercel.

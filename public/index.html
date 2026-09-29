@@ -3113,74 +3113,136 @@ function iptvParsePaste(){
   document.getElementById('iptv-preview-warn').textContent = warn > 0 ? `⚠ ${warn} cliente(s) sem servidor` : '';
 }
 
+function iptvNormServidor(s){
+  const t=(s||'').trim();
+  const m={gf:'GF',now:'NOW',slim:'Slim',club:'Club',unitv:'UniTV',prime:'Prime',ultra:'Ultra'};
+  return m[t.toLowerCase()]||t;
+}
+
+async function iptvAuditarImportacao(linhas){
+  const lista=await api('GET','/api/clientes');
+  const mapa=new Map(lista.map(c=>[`${(c.nome||'').trim()}|||${iptvNormServidor(c.servidor)}`,c]));
+  const faltando=[];
+  const statusDivergente=[];
+  for(const cols of linhas){
+    const nome=(cols[0]||'').trim();
+    const servidor=iptvNormServidor(cols[2]||'');
+    const esperado=(cols[1]||'').trim().toLowerCase()==='sim'?'ativo':'inativo';
+    const c=mapa.get(`${nome}|||${servidor}`);
+    if(!c) faltando.push({nome,servidor,cols});
+    else if(c.status!==esperado) statusDivergente.push({nome,servidor,esperado,atual:c.status});
+  }
+  return { totalFonte:linhas.length, totalBanco:lista.length, encontrados:linhas.length-faltando.length, faltando, statusDivergente };
+}
+
 async function iptvConfirmar(){
-  if (!iptvLinhas.length){ toast('Nenhuma linha para importar','err'); return; }
-  const btn = document.getElementById('iptv-btn-importar');
-  btn.disabled = true;
-  btn.innerHTML = '<i class="ti ti-loader"></i> Importando...';
-  try {
-    // Envia pequenos lotes para evitar timeout da função serverless da Vercel.
-    const textoOriginal = document.getElementById('iptv-paste').value.trim();
-    const linhasOriginais = textoOriginal.split(/\r?\n/).map(l => l.replace(/\r/g,''));
-    let headerIdx = linhasOriginais.findIndex((l,i) => i < 5 && l.toLowerCase().includes('cliente') && l.toLowerCase().includes('ativ'));
-    if (headerIdx < 0) headerIdx = 0;
-    const headerLinha = linhasOriginais[headerIdx] || 'Cliente\tAtivo\tServidor\tMensal\tDia\tObs';
-    const linhasClientes = iptvLinhas.map(cols => cols.join('\t'));
-    const tamanhoLote = 8;
-    const total = { clientesNovos:0, clientesAtualizados:0, totalCobrancasCriadas:0, totalCobrancasPagas:0 };
-    const progress = document.getElementById('iptv-import-progress');
-    const progressBar = document.getElementById('iptv-progress-bar');
-    const progressTitle = document.getElementById('iptv-progress-title');
-    const progressPercent = document.getElementById('iptv-progress-percent');
-    const progressDetail = document.getElementById('iptv-progress-detail');
-    const totalClientes = linhasClientes.length;
-    const totalLotes = Math.ceil(totalClientes / tamanhoLote);
-    const inicio = Date.now();
-    let concluidos = 0;
+  if(!iptvLinhas.length){ toast('Nenhuma linha para importar','err'); return; }
+  const btn=document.getElementById('iptv-btn-importar');
+  btn.disabled=true;
+  btn.innerHTML='<i class="ti ti-loader"></i> Preparando...';
+  try{
+    const textoOriginal=document.getElementById('iptv-paste').value.trim();
+    const linhasOriginais=textoOriginal.split(/\r?\n/).map(l=>l.replace(/\r/g,''));
+    let headerIdx=linhasOriginais.findIndex((l,i)=>i<5&&l.toLowerCase().includes('cliente')&&l.toLowerCase().includes('ativ'));
+    const headerLinha=headerIdx>=0 ? linhasOriginais[headerIdx] : 'Cliente\tAtivo\tServidor\tMensal\tDia\tObs';
+    const linhasClientes=iptvLinhas.map(cols=>cols.join('\t'));
+    const tamanhoLote=8;
+    const total={clientesNovos:0,clientesAtualizados:0,totalCobrancasCriadas:0,totalCobrancasPagas:0};
+    const progress=document.getElementById('iptv-import-progress');
+    const progressBar=document.getElementById('iptv-progress-bar');
+    const progressTitle=document.getElementById('iptv-progress-title');
+    const progressPercent=document.getElementById('iptv-progress-percent');
+    const progressDetail=document.getElementById('iptv-progress-detail');
+    const totalClientes=linhasClientes.length;
+    const totalLotes=Math.ceil(totalClientes/tamanhoLote);
+    const inicio=Date.now();
+    let concluidos=0;
+    let falhas=[];
 
-    progress.style.display = 'block';
-    progressTitle.textContent = `Importando ${totalClientes} clientes`;
-    progressPercent.textContent = '0%';
-    progressBar.style.width = '0%';
-    progressDetail.textContent = `0 de ${totalClientes} clientes concluídos • 0 de ${totalLotes} lotes`;
+    progress.style.display='block';
+    progressTitle.textContent=`Importando ${totalClientes} clientes`;
+    progressPercent.textContent='0%';
+    progressBar.style.width='0%';
+    progressDetail.textContent=`0 de ${totalClientes} clientes concluídos • 0 de ${totalLotes} lotes`;
 
-    for (let i = 0; i < totalClientes; i += tamanhoLote) {
-      const fim = Math.min(i + tamanhoLote, totalClientes);
-      const loteAtual = Math.floor(i / tamanhoLote) + 1;
-      const textoLote = [headerLinha, ...linhasClientes.slice(i, fim)].join('\n');
-      const percentualAntes = Math.round((i / totalClientes) * 100);
-      btn.innerHTML = `<i class="ti ti-loader"></i> Lote ${loteAtual}/${totalLotes}`;
-      progressTitle.textContent = `Processando clientes ${i + 1}–${fim}`;
-      progressPercent.textContent = `${percentualAntes}%`;
-      progressBar.style.width = `${percentualAntes}%`;
-      progressDetail.textContent = `Lote ${loteAtual} de ${totalLotes} • concluídos: ${concluidos}/${totalClientes}`;
+    for(let i=0;i<totalClientes;i+=tamanhoLote){
+      const fim=Math.min(i+tamanhoLote,totalClientes);
+      const loteAtual=Math.floor(i/tamanhoLote)+1;
+      const loteCols=iptvLinhas.slice(i,fim);
+      const textoLote=[headerLinha,...loteCols.map(c=>c.join('\t'))].join('\n');
+      btn.innerHTML=`<i class="ti ti-loader"></i> Lote ${loteAtual}/${totalLotes}`;
+      progressTitle.textContent=`Processando clientes ${i+1}–${fim}`;
+      progressPercent.textContent=`${Math.round((i/totalClientes)*100)}%`;
+      progressBar.style.width=`${Math.round((i/totalClientes)*100)}%`;
+      progressDetail.textContent=`Lote ${loteAtual} de ${totalLotes} • concluídos: ${concluidos}/${totalClientes}`;
 
-      const r = await api('POST', '/api/importar-clientes-historico', { texto: textoLote });
-      total.clientesNovos += r.clientesNovos || 0;
-      total.clientesAtualizados += r.clientesAtualizados || 0;
-      total.totalCobrancasCriadas += r.totalCobrancasCriadas || 0;
-      total.totalCobrancasPagas += r.totalCobrancasPagas || 0;
-      concluidos = fim;
-
-      const percentual = Math.round((concluidos / totalClientes) * 100);
-      const decorrido = Math.max(1, (Date.now() - inicio) / 1000);
-      const velocidade = concluidos / decorrido;
-      const restante = velocidade > 0 ? Math.max(0, Math.ceil((totalClientes - concluidos) / velocidade)) : 0;
-      progressTitle.textContent = concluidos >= totalClientes ? 'Importação concluída' : `Processando clientes ${Math.min(concluidos + 1, totalClientes)}–${Math.min(concluidos + tamanhoLote, totalClientes)}`;
-      progressPercent.textContent = `${percentual}%`;
-      progressBar.style.width = `${percentual}%`;
-      progressDetail.textContent = concluidos >= totalClientes
-        ? `${concluidos} de ${totalClientes} clientes concluídos • ${totalLotes} lotes processados`
-        : `Concluídos: ${concluidos}/${totalClientes} • Lotes: ${loteAtual}/${totalLotes} • Estimativa restante: ${restante}s`;
+      const r=await api('POST','/api/importar-clientes-historico',{texto:textoLote});
+      total.clientesNovos+=r.clientesNovos||0;
+      total.clientesAtualizados+=r.clientesAtualizados||0;
+      total.totalCobrancasCriadas+=r.totalCobrancasCriadas||0;
+      total.totalCobrancasPagas+=r.totalCobrancasPagas||0;
+      if(r.erros?.length){
+        for(const er of r.erros){
+          const idx=Number(er.indice)-1;
+          if(Number.isInteger(idx)&&idx>=0&&idx<loteCols.length) falhas.push({cols:loteCols[idx],mensagem:er.mensagem});
+          else falhas.push({cols:[],mensagem:er.mensagem});
+        }
+      }
+      concluidos=fim;
+      const percentual=Math.round((concluidos/totalClientes)*100);
+      const decorrido=Math.max(1,(Date.now()-inicio)/1000);
+      const velocidade=concluidos/decorrido;
+      const restante=velocidade>0?Math.max(0,Math.ceil((totalClientes-concluidos)/velocidade)):0;
+      progressTitle.textContent=`Processando clientes ${Math.min(concluidos+1,totalClientes)}–${Math.min(concluidos+tamanhoLote,totalClientes)}`;
+      progressPercent.textContent=`${percentual}%`;
+      progressBar.style.width=`${percentual}%`;
+      progressDetail.textContent=`Concluídos: ${concluidos}/${totalClientes} • Lotes: ${loteAtual}/${totalLotes} • Estimativa restante: ${restante}s`;
     }
 
-    closeOv('ov-iptv');
-    toast(`✓ ${total.clientesNovos} cliente(s) criado(s), ${total.clientesAtualizados} atualizado(s), ${total.totalCobrancasCriadas} cobrança(s) importada(s)!`);
+    // Se alguma linha falhou, tenta somente as falhas uma segunda vez.
+    if(falhas.length){
+      const retryCols=falhas.map(f=>f.cols).filter(c=>c?.length);
+      if(retryCols.length){
+        progressTitle.textContent=`Reprocessando ${retryCols.length} cliente(s) com falha...`;
+        progressPercent.textContent='99%';
+        progressBar.style.width='99%';
+        const r2=await api('POST','/api/importar-clientes-historico',{texto:[headerLinha,...retryCols.map(c=>c.join('\t'))].join('\n')});
+        total.clientesNovos+=r2.clientesNovos||0;
+        total.clientesAtualizados+=r2.clientesAtualizados||0;
+        total.totalCobrancasCriadas+=r2.totalCobrancasCriadas||0;
+        total.totalCobrancasPagas+=r2.totalCobrancasPagas||0;
+        falhas=(r2.erros||[]).map(er=>({cols:retryCols[(Number(er.indice)||1)-1]||[],mensagem:er.mensagem}));
+      }
+    }
+
+    // Auditoria final: compara TODOS os registros da origem com TODOS os clientes do banco.
+    progressTitle.textContent='Conferindo importação...';
+    progressPercent.textContent='100%';
+    progressBar.style.width='100%';
+    const auditoria=await iptvAuditarImportacao(iptvLinhas);
+    const ok=auditoria.faltando.length===0 && auditoria.statusDivergente.length===0 && falhas.length===0;
+
+    if(ok){
+      progressTitle.textContent='✓ Importação concluída e conferida';
+      progressDetail.innerHTML=`<strong>${auditoria.encontrados}/${auditoria.totalFonte}</strong> clientes encontrados no banco • ${total.totalCobrancasCriadas} cobranças novas • ${total.totalCobrancasPagas} pagas`;
+      btn.innerHTML='<i class="ti ti-check"></i> Concluído';
+      setTimeout(()=>closeOv('ov-iptv'),900);
+      toast(`✓ ${auditoria.encontrados} clientes conferidos. Nenhum ficou faltando.`);
+    }else{
+      const falt=auditoria.faltando.map(x=>`${x.nome} (${x.servidor||'sem servidor'})`).slice(0,12);
+      const div=auditoria.statusDivergente.length;
+      progressTitle.textContent='⚠ Importação concluída com divergências';
+      progressDetail.innerHTML=`Fonte: <strong>${auditoria.totalFonte}</strong> • Encontrados: <strong>${auditoria.encontrados}</strong> • Faltando: <strong>${auditoria.faltando.length}</strong> • Status divergente: <strong>${div}</strong> • Falhas: <strong>${falhas.length}</strong><br><span style="display:block;margin-top:6px;color:var(--red)">${falt.join('<br>')}</span>`;
+      btn.disabled=false;
+      btn.innerHTML='<i class="ti ti-refresh"></i> Tentar novamente';
+      toast(`⚠ ${auditoria.faltando.length} cliente(s) ainda não conferiram.`,'err');
+    }
     renderClientes();
-  } catch(e) {
-    toast('Erro ao importar: ' + e.message, 'err');
-    btn.disabled = false;
-    btn.innerHTML = '<i class="ti ti-upload"></i> Importar';
+  }catch(e){
+    console.error('Importação IPTV:',e);
+    toast('Erro ao importar: '+e.message,'err');
+    btn.disabled=false;
+    btn.innerHTML='<i class="ti ti-upload"></i> Importar';
   }
 }
 

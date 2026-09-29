@@ -508,113 +508,179 @@ export default async function handler(req, res) {
   if (url === '/importar-clientes-historico' && req.method==='POST') {
     const { texto } = body;
     if (!texto?.trim()) return err(res,'Texto vazio');
+
     const pad2=n=>String(n).padStart(2,'0');
     const parseValor=s=>s ? parseFloat(String(s).replace(/R\$\s?/g,'').replace(/\./g,'').replace(',','.').trim())||0 : 0;
-    const parseDataBR=s=>{ if(!s) return null; s=s.trim(); const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? `${m[3]}-${pad2(m[2])}-${pad2(m[1])}` : null; };
-    const linhasBrutas=texto.split(/\r?\n/).filter(l=>l.trim());
-    let hi=-1;
-    for(let i=0;i<Math.min(linhasBrutas.length,5);i++) { if(linhasBrutas[i].toLowerCase().includes('cliente')&&linhasBrutas[i].toLowerCase().includes('ativ')) { hi=i; break; } }
-    if(hi===-1) hi=1;
-    const dataLinhas=linhasBrutas.slice(hi+1);
-    let clientesNovos=0, clientesAtualizados=0, totalCobrancasCriadas=0, totalCobrancasPagas=0;
-    const anoAtual=new Date().getFullYear(); const hojeISO=new Date().toISOString().slice(0,10);
-    // Processa em pequenos lotes para evitar timeout da Vercel e reduzir o tempo total da importação.
-    // Cada cliente continua sendo processado de forma sequencial internamente para preservar a consistência.
-    const processarLinha = async (linha) => {
-      const cols=linha.split('\t');
-      if(cols.length<6) return { clientesNovos:0, clientesAtualizados:0, totalCobrancasCriadas:0, totalCobrancasPagas:0 };
-      const nomeRaw=(cols[0]||'').trim(); if(!nomeRaw) return { clientesNovos:0, clientesAtualizados:0, totalCobrancasCriadas:0, totalCobrancasPagas:0 };
-      const ativoRaw=(cols[1]||'').trim().toLowerCase();
-      const servidor=(cols[2]||'').trim();
-      const valorMensal=parseValor(cols[3]);
-      const dia=parseInt(cols[4])||1;
-      const obs=(cols[5]||'').trim();
-      const status=ativoRaw==='sim'?'ativo':'inativo';
-      const servidorFinal=normalizarServidor(servidor)||'';
-
-      if (servidorFinal) {
-        await sb.from('servidores').upsert(
-          { id:uid(), nome:servidorFinal, criado:new Date().toISOString() },
-          { onConflict:'nome', ignoreDuplicates:true }
-        );
-      }
-
-      const { data:clienteExist, error:clienteBuscaError } = await sb.from('clientes')
-        .select('*').eq('nome',nomeRaw).maybeSingle();
-      if (clienteBuscaError) throw clienteBuscaError;
-
-      let cliente;
-      let clientesNovosLocal=0, clientesAtualizadosLocal=0;
-      if (clienteExist) {
-        const novoValor=valorMensal||clienteExist.valor;
-        const { error } = await sb.from('clientes').update({ servidor:servidorFinal, dia, valor:novoValor, status, obs }).eq('id',clienteExist.id);
-        if (error) throw error;
-        cliente={ ...clienteExist, servidor:servidorFinal, dia, valor:novoValor };
-        clientesAtualizadosLocal=1;
-      } else {
-        const id=uid();
-        const { error } = await sb.from('clientes').insert({ id, nome:nomeRaw, celular:'', servidor:servidorFinal, dia, valor:valorMensal||0, status, obs, criado:new Date().toISOString() });
-        if (error) throw error;
-        cliente={ id, nome:nomeRaw, servidor:servidorFinal, dia, valor:valorMensal||0 };
-        clientesNovosLocal=1;
-      }
-
-      let anoBase=anoAtual;
-      for(let b=6;b+4<cols.length;b+=5) {
-        const d=parseDataBR((cols[b]||'').trim());
-        if(d) { const a=parseInt(d.slice(0,4)); if(a>anoBase) anoBase=a; }
-      }
-
-      let blocoStart=6, mesIdx=0, criadasLocal=0, pagasLocal=0;
-      while(blocoStart+4<cols.length) {
-        const dataStr=(cols[blocoStart]||'').trim();
-        const recebidoStr=(cols[blocoStart+1]||'').trim().toLowerCase();
-        const valorStr=(cols[blocoStart+4]||'').trim();
-        blocoStart+=5;
-        const mesBlocoNum=(mesIdx%12)+1, anoBlocoNum=anoBase+Math.floor(mesIdx/12);
-        mesIdx++;
-        const dataVazia=!dataStr||dataStr==='-';
-        const recebidoVazio=!recebidoStr||recebidoStr==='-';
-        if(dataVazia&&recebidoVazio) continue;
-        if(dataVazia&&recebidoStr==='0') continue;
-        const isPago=recebidoStr==='sim'||recebidoStr==='s';
-        if(dataVazia&&!isPago&&recebidoStr!=='não'&&recebidoStr!=='nao') continue;
-        const valorCobranca=parseValor(valorStr)||valorMensal;
-        const mesRef=`${anoBlocoNum}-${pad2(mesBlocoNum)}`;
-        const diasNoMesBl=new Date(anoBlocoNum,mesBlocoNum,0).getDate();
-        const diaVenc=Math.min(dia,diasNoMesBl);
-        const vencimentoISO=`${anoBlocoNum}-${pad2(mesBlocoNum)}-${pad2(diaVenc)}`;
-        const statusCob=isPago?'pago':vencimentoISO<hojeISO?'vencido':'pendente';
-        const dataISO=parseDataBR(dataStr);
-        const { data:cobExist, error:cobBuscaError }=await sb.from('cobrancas').select('id').eq('cliente_id',cliente.id).eq('mes_ref',mesRef).maybeSingle();
-        if(cobBuscaError) throw cobBuscaError;
-        if (cobExist) {
-          const { error } = await sb.from('cobrancas').update({ servidor:servidorFinal, valor:valorCobranca, vencimento:vencimentoISO, status:statusCob, pago_em:isPago&&dataISO?dataISO:null, valor_pago:isPago?valorCobranca:null }).eq('id',cobExist.id);
-          if (error) throw error;
-        } else {
-          const { error } = await sb.from('cobrancas').insert({ id:uid(), cliente_id:cliente.id, cliente_nome:nomeRaw, servidor:servidorFinal, valor:valorCobranca, vencimento:vencimentoISO, mes_ref:mesRef, status:statusCob, pago_em:isPago&&dataISO?dataISO:null, valor_pago:isPago?valorCobranca:null, criado:new Date().toISOString() });
-          if (error) throw error;
-          criadasLocal++;
-          if(isPago) pagasLocal++;
-        }
-      }
-      return { clientesNovos:clientesNovosLocal, clientesAtualizados:clientesAtualizadosLocal, totalCobrancasCriadas:criadasLocal, totalCobrancasPagas:pagasLocal };
+    const parseDataBR=s=>{
+      if(!s) return null;
+      s=String(s).trim();
+      const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      return m ? `${m[3]}-${pad2(m[2])}-${pad2(m[1])}` : null;
     };
 
-    const resultados=[];
-    const tamanhoLote=8;
-    for(let i=0;i<dataLinhas.length;i+=tamanhoLote) {
-      const lote=dataLinhas.slice(i,i+tamanhoLote);
-      const loteResultados=await Promise.all(lote.map(processarLinha));
-      resultados.push(...loteResultados);
+    const linhasBrutas=texto.split(/\r?\n/).map(l=>l.replace(/\r/g,'')).filter(l=>l.trim());
+    let headerIdx=-1;
+    for(let i=0;i<Math.min(linhasBrutas.length,5);i++) {
+      const low=linhasBrutas[i].toLowerCase();
+      if(low.includes('cliente')&&low.includes('ativ')) { headerIdx=i; break; }
     }
+    const dataLinhas=(headerIdx>=0 ? linhasBrutas.slice(headerIdx+1) : linhasBrutas)
+      .filter(l=>l.trim() && !(/^data\b/i.test(l.trim()) && /recebido/i.test(l)));
+
+    const hojeISO=new Date().toISOString().slice(0,10);
+    let clientesNovos=0, clientesAtualizados=0, totalCobrancasCriadas=0, totalCobrancasPagas=0;
+    const processados=[];
+    const erros=[];
+
+    // Uma chamada desta rota recebe apenas um lote pequeno enviado pelo frontend.
+    // Cada linha é isolada para que uma falha não interrompa as demais.
+    const processarLinha = async (linha, numeroLinha) => {
+      try {
+        const cols=linha.split('\t');
+        if(cols.length<6) throw new Error(`Linha com apenas ${cols.length} colunas; esperado pelo menos 6`);
+
+        const nomeRaw=(cols[0]||'').trim();
+        if(!nomeRaw) throw new Error('Nome do cliente vazio');
+
+        const ativoRaw=(cols[1]||'').trim().toLowerCase();
+        const servidorFinal=normalizarServidor((cols[2]||'').trim())||'';
+        const valorMensal=parseValor(cols[3]);
+        const dia=parseInt(cols[4],10)||1;
+        const obs=(cols[5]||'').trim();
+        const status=ativoRaw==='sim'?'ativo':'inativo';
+
+        if (servidorFinal) {
+          const { error:eSrv } = await sb.from('servidores').upsert(
+            { id:uid(), nome:servidorFinal, criado:new Date().toISOString() },
+            { onConflict:'nome', ignoreDuplicates:true }
+          );
+          if(eSrv) throw eSrv;
+        }
+
+        // A identidade do cliente é NOME + SERVIDOR.
+        // Isso preserva registros como "Genivaldo ..." e "Genivaldo ... 002".
+        let clienteExist=null;
+        const buscaExata=await sb.from('clientes')
+          .select('*')
+          .eq('nome',nomeRaw)
+          .eq('servidor',servidorFinal)
+          .limit(1);
+        if(buscaExata.error) throw buscaExata.error;
+        clienteExist=buscaExata.data?.[0]||null;
+
+        // Compatibilidade com clientes antigos que ainda estão sem servidor.
+        if(!clienteExist) {
+          const buscaNome=await sb.from('clientes').select('*').eq('nome',nomeRaw).limit(2);
+          if(buscaNome.error) throw buscaNome.error;
+          if((buscaNome.data||[]).length===1 && !(buscaNome.data[0].servidor||'').trim()) {
+            clienteExist=buscaNome.data[0];
+          }
+        }
+
+        let cliente;
+        if(clienteExist) {
+          const novoValor=valorMensal||clienteExist.valor||0;
+          const { data, error:eUpd }=await sb.from('clientes')
+            .update({ servidor:servidorFinal, dia, valor:novoValor, status, obs })
+            .eq('id',clienteExist.id)
+            .select('*').single();
+          if(eUpd) throw eUpd;
+          cliente=data;
+          clientesAtualizados++;
+        } else {
+          const novo={ id:uid(), nome:nomeRaw, celular:'', servidor:servidorFinal, dia, valor:valorMensal||0, status, obs, criado:new Date().toISOString() };
+          const { data, error:eIns }=await sb.from('clientes').insert(novo).select('*').single();
+          if(eIns) throw eIns;
+          cliente=data;
+          clientesNovos++;
+        }
+
+        let anoBase=new Date().getFullYear();
+        let blocoStart=6, mesIdx=0;
+        let criadasLocal=0, pagasLocal=0;
+
+        // O layout da planilha é fixo: 12 blocos de 5 colunas.
+        // O mês de referência é a posição do bloco (Jan..Dez) e NÃO a data de pagamento.
+        // A data é usada somente como data em que o pagamento ocorreu.
+        while(blocoStart+4<cols.length) {
+          const dataStr=(cols[blocoStart]||'').trim();
+          const recebidoStr=(cols[blocoStart+1]||'').trim().toLowerCase();
+          const valorStr=(cols[blocoStart+4]||'').trim();
+          const mesBlocoNum=(mesIdx%12)+1;
+          const anoBlocoNum=anoBase+Math.floor(mesIdx/12);
+          mesIdx++;
+          blocoStart+=5;
+
+          const dataVazia=!dataStr||dataStr==='-';
+          const recebidoVazio=!recebidoStr||recebidoStr==='-';
+          if(dataVazia&&recebidoVazio) continue;
+          if(dataVazia&&recebidoStr==='0') continue;
+
+          const isPago=recebidoStr==='sim'||recebidoStr==='s';
+          const isNao=recebidoStr==='não'||recebidoStr==='nao';
+          if(dataVazia&&!isPago&&!isNao) continue;
+
+          const valorCobranca=parseValor(valorStr)||valorMensal;
+          const mesRef=`${anoBlocoNum}-${pad2(mesBlocoNum)}`;
+          const diaVenc=Math.min(dia,new Date(anoBlocoNum,mesBlocoNum,0).getDate());
+          const vencimentoISO=`${anoBlocoNum}-${pad2(mesBlocoNum)}-${pad2(diaVenc)}`;
+          const statusCob=isPago?'pago':(vencimentoISO<hojeISO?'vencido':'pendente');
+          const dataISO=parseDataBR(dataStr);
+
+          const busca=await sb.from('cobrancas').select('id').eq('cliente_id',cliente.id).eq('mes_ref',mesRef).limit(1);
+          if(busca.error) throw busca.error;
+
+          if(busca.data?.[0]) {
+            const { error:eUpdCob }=await sb.from('cobrancas').update({
+              cliente_nome:nomeRaw,
+              servidor:servidorFinal,
+              valor:valorCobranca,
+              vencimento:vencimentoISO,
+              status:statusCob,
+              pago_em:isPago&&dataISO?dataISO:null,
+              valor_pago:isPago?valorCobranca:null
+            }).eq('id',busca.data[0].id);
+            if(eUpdCob) throw eUpdCob;
+          } else {
+            const { error:eInsCob }=await sb.from('cobrancas').insert({
+              id:uid(), cliente_id:cliente.id, cliente_nome:nomeRaw, servidor:servidorFinal,
+              valor:valorCobranca, vencimento:vencimentoISO, mes_ref:mesRef,
+              status:statusCob, pago_em:isPago&&dataISO?dataISO:null,
+              valor_pago:isPago?valorCobranca:null, criado:new Date().toISOString()
+            });
+            if(eInsCob) throw eInsCob;
+            criadasLocal++;
+            if(isPago) pagasLocal++;
+          }
+        }
+
+        totalCobrancasCriadas+=criadasLocal;
+        totalCobrancasPagas+=pagasLocal;
+        return { ok:true, detalhe:{ indice:numeroLinha, nome:nomeRaw, servidor:servidorFinal, status } };
+      } catch(e) {
+        return { ok:false, erro:{ indice:numeroLinha, nome:(linha.split('\t')[0]||'').trim(), mensagem:e?.message||String(e) } };
+      }
+    };
+
+    // Até 8 clientes em paralelo: reduz bastante o tempo sem sobrecarregar o Supabase.
+    const resultados=await Promise.all(dataLinhas.map((linha,i)=>processarLinha(linha,i+1)));
     for(const r of resultados) {
-      clientesNovos+=r.clientesNovos;
-      clientesAtualizados+=r.clientesAtualizados;
-      totalCobrancasCriadas+=r.totalCobrancasCriadas;
-      totalCobrancasPagas+=r.totalCobrancasPagas;
+      if(r.ok) processados.push(r.detalhe);
+      else erros.push(r.erro);
     }
-    return res.json({ ok:true, clientesNovos, clientesAtualizados, totalCobrancasCriadas, totalCobrancasPagas, erros:[] });
+
+    return res.json({
+      ok:erros.length===0,
+      recebidos:dataLinhas.length,
+      processados:processados.length,
+      falhas:erros.length,
+      clientesNovos,
+      clientesAtualizados,
+      totalCobrancasCriadas,
+      totalCobrancasPagas,
+      processadosDetalhes:processados,
+      erros
+    });
   }
 
   return res.status(404).json({ erro: 'Rota não encontrada', url });

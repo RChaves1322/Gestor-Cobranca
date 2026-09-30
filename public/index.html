@@ -2018,12 +2018,12 @@ async function abrirHist(id,nome){
     document.getElementById('h-lista').innerHTML=hist.length===0
       ?'<div class="empty"><i class="ti ti-receipt-off"></i><p>Nenhuma cobrança encontrada.</p></div>'
       :`<table><thead><tr>
-          <th style="width:22%">Referência</th><th style="width:16%">Vencimento</th><th style="width:16%">Pagamento</th>
-          <th style="width:14%">Valor</th><th style="width:14%">Valor pago</th><th style="width:18%">Status</th>
+          <th style="width:20%">Referência</th><th style="width:15%">Vencimento</th><th style="width:15%">Pagamento</th>
+          <th style="width:14%">Valor</th><th style="width:14%">Valor pago</th><th style="width:22%">Status</th>
         </tr></thead><tbody>${hist.map(h=>`<tr>
-          <td style="font-weight:500;white-space:nowrap">${fmtMesRef(h.mes_ref)}</td><td>${fmtD(h.vencimento)}</td><td>${h.pago_em?fmtD(h.pago_em):'—'}</td>
+          <td style="font-weight:500;white-space:nowrap">${fmtMesRef(h.mes_ref)}${h.origem==='recebimento_historico'?'<div style=\"font-size:10px;color:var(--muted);margin-top:2px\">Histórico importado</div>':''}</td><td>${fmtD(h.vencimento)}</td><td>${h.pago_em?fmtD(h.pago_em):'—'}</td>
           <td>${fmtV(h.valor)}</td><td>${h.valor_pago!=null?fmtV(h.valor_pago):'—'}</td>
-          <td><span class="badge badge-${h.status}">${LBL[h.status]}</span></td>
+          <td><span class="badge badge-${h.status}">${LBL[h.status]}</span>${h.desconto>0?`<div style="font-size:10px;color:var(--muted);margin-top:2px">Desc. ${fmtV(h.desconto)}</div>`:''}</td>
         </tr>`).join('')}</tbody></table>`;
     openOv('ov-hist');
   }catch{toast('Erro ao carregar histórico','err');}

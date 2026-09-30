@@ -161,8 +161,67 @@ export default async function handler(req, res) {
   }
   if (url.match(/^\/clientes\/[^/]+\/historico$/)) {
     const id = url.split('/')[2];
-    const { data } = await sb.from('cobrancas').select('*').eq('cliente_id',id).order('vencimento',{ascending:false});
-    return res.json(data);
+
+    // O histórico do cliente precisa considerar DOIS tipos de movimento:
+    // 1) cobranças atuais (pendentes/vencidas e pagamentos feitos manualmente)
+    // 2) recebimentos importados do histórico antigo.
+    // Os recebimentos importados não possuem, necessariamente, uma cobrança
+    // correspondente na tabela cobrancas. Por isso não podemos consultar
+    // somente cobrancas aqui.
+    const [cobRes, recRes] = await Promise.all([
+      sb.from('cobrancas')
+        .select('*')
+        .eq('cliente_id',id)
+        .order('vencimento',{ascending:false}),
+      sb.from('recebimentos')
+        .select('*')
+        .eq('cliente_id',id)
+        .order('data_recebimento',{ascending:false})
+    ]);
+
+    if (cobRes.error) return err(res, `Erro ao carregar cobranças: ${cobRes.error.message}`, 500);
+    if (recRes.error) return err(res, `Erro ao carregar recebimentos: ${recRes.error.message}`, 500);
+
+    const cobrancas = cobRes.data || [];
+    const recebimentos = recRes.data || [];
+    const mesesComRecebimento = new Set(
+      recebimentos.filter(r=>r.mes_ref).map(r=>r.mes_ref)
+    );
+
+    // Para meses que já possuem histórico importado, não repetimos uma
+    // cobrança paga antiga. Mantemos cobranças pendentes/vencidas/canceladas
+    // e pagamentos feitos diretamente pelo sistema.
+    const cobrancasExibidas = cobrancas.filter(c => {
+      if (c.status === 'pago' && c.mes_ref && mesesComRecebimento.has(c.mes_ref)) return false;
+      return true;
+    });
+
+    // Normaliza recebimentos para o mesmo formato usado pela tela de histórico.
+    // Assim o frontend consegue mostrar os pagamentos antigos sem precisar
+    // conhecer a estrutura interna da tabela recebimentos.
+    const historicoRecebimentos = recebimentos.map(r => ({
+      id: `receb_${r.id}`,
+      cliente_id: r.cliente_id,
+      mes_ref: r.mes_ref,
+      vencimento: r.data_recebimento,
+      pago_em: r.data_recebimento,
+      valor: Number(r.valor_original || r.valor_recebido || 0),
+      valor_pago: Number(r.valor_recebido || 0),
+      status: 'pago',
+      servidor: r.servidor || '',
+      obs_pagamento: r.descricao || '',
+      origem: 'recebimento_historico',
+      desconto: Number(r.desconto || 0),
+      pontos: Number(r.pontos || 0)
+    }));
+
+    const historico = [...cobrancasExibidas, ...historicoRecebimentos].sort((a,b)=>{
+      const da = new Date(a.pago_em || a.vencimento || 0).getTime();
+      const db = new Date(b.pago_em || b.vencimento || 0).getTime();
+      return db-da;
+    });
+
+    return res.json(historico);
   }
   if (url.match(/^\/clientes\/[^/]+\/parcelas-lote$/)) {
     await marcarVencidos();

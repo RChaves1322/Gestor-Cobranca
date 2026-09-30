@@ -1168,6 +1168,11 @@ tbody tr:hover td{background:var(--bg3)}
       <div style="text-align:center;color:var(--muted);font-size:13px;margin:.75rem 0">ou cole os dados copiados do Excel (Ctrl+C na planilha → Ctrl+V aqui):</div>
       <textarea id="iptv-paste" placeholder="Cole aqui os dados da planilha..." rows="8" style="margin-bottom:.75rem;font-size:12px" oninput="iptvParsePaste()"></textarea>
 
+      <div style="display:flex;align-items:center;gap:10px;margin:.5rem 0 1rem;padding:.75rem .9rem;border:1px solid rgba(96,165,250,.25);background:rgba(96,165,250,.06);border-radius:var(--radius-sm)">
+        <input type="checkbox" id="iptv-somente-2026" style="width:16px;height:16px;accent-color:var(--blue)" onchange="iptvAtualizarModo()">
+        <label for="iptv-somente-2026" style="font-size:13px;cursor:pointer"><strong>Importação complementar 2026</strong><br><span style="color:var(--muted);font-size:12px">Importa somente pagamentos de 2026 e preserva integralmente os pagamentos de 2025 já cadastrados.</span></label>
+      </div>
+
       <div id="iptv-preview" style="display:none">
         <div style="font-size:13px;font-weight:600;margin-bottom:.75rem">
           Prévia — <span id="iptv-preview-count">0</span> clientes encontrados
@@ -3071,6 +3076,8 @@ function abrirImportarIPTV(){
     if (preview) preview.style.display = 'none';
     if (btnImp) btnImp.disabled = true;
     if (btnCount) btnCount.textContent = '';
+    const modo2026 = document.getElementById('iptv-somente-2026');
+    if (modo2026) modo2026.checked = false;
     const ovEl = document.getElementById('ov-iptv');
     console.log('overlay ov-iptv:', ovEl);
     openOv('ov-iptv');
@@ -3102,6 +3109,34 @@ function iptvHandleFile(input){
 function iptvParsarValor(s){
   if (!s) return 0;
   return parseFloat(String(s).replace(/R\$\s?/g,'').replace(/\./g,'').replace(',','.').trim()) || 0;
+}
+
+function iptvTemPagamentoAno(cols, ano){
+  for(let b=6;b+4<cols.length;b+=5){
+    const data=(cols[b]||'').trim();
+    const rec=(cols[b+1]||'').trim().toLowerCase();
+    if((rec==='sim'||rec==='s') && data.endsWith('/'+ano)) return true;
+  }
+  return false;
+}
+
+function iptvFiltrarColunasAno(cols, ano){
+  const out=cols.slice(0,6);
+  for(let b=6;b+4<cols.length;b+=5){
+    const bloco=cols.slice(b,b+5);
+    const data=(bloco[0]||'').trim();
+    const rec=(bloco[1]||'').trim().toLowerCase();
+    if((rec==='sim'||rec==='s') && data.endsWith('/'+ano)) out.push(...bloco);
+  }
+  return out;
+}
+
+function iptvModoComplementar2026(){
+  return !!document.getElementById('iptv-somente-2026')?.checked;
+}
+
+function iptvAtualizarModo(){
+  if(document.getElementById('iptv-paste')?.value.trim()) iptvParsePaste();
 }
 
 function iptvParsePaste(){
@@ -3143,12 +3178,21 @@ function iptvParsePaste(){
   }
 
   prev.style.display = '';
-  document.getElementById('iptv-preview-count').textContent = iptvLinhas.length;
-  document.getElementById('iptv-btn-importar').disabled = false;
-  document.getElementById('iptv-btn-count').textContent = `(${iptvLinhas.length})`;
+  const modo2026 = iptvModoComplementar2026();
+  const linhasPreview = modo2026 ? iptvLinhas.filter(cols=>iptvTemPagamentoAno(cols,2026)) : iptvLinhas;
+  const qtdPagamentosPreview = linhasPreview.reduce((n,cols)=>{
+    for(let b=6;b+4<cols.length;b+=5){
+      const dt=(cols[b]||'').trim(), rec=(cols[b+1]||'').trim().toLowerCase();
+      if((rec==='sim'||rec==='s') && (!modo2026 || dt.endsWith('/2026'))) n++;
+    }
+    return n;
+  },0);
+  document.getElementById('iptv-preview-count').textContent = modo2026 ? `${linhasPreview.length} clientes • ${qtdPagamentosPreview} pagamentos de 2026` : iptvLinhas.length;
+  document.getElementById('iptv-btn-importar').disabled = modo2026 ? qtdPagamentosPreview===0 : false;
+  document.getElementById('iptv-btn-count').textContent = modo2026 ? `(${qtdPagamentosPreview} pagamentos 2026)` : `(${iptvLinhas.length})`;
 
   // Contar cobranças por cliente para prévia
-  const previewRows = iptvLinhas.slice(0, 30).map(cols => {
+  const previewRows = linhasPreview.slice(0, 30).map(cols => {
     const nome    = (cols[0]||'').trim();
     const ativo   = (cols[1]||'').trim();
     const servidor= (cols[2]||'').trim();
@@ -3159,7 +3203,7 @@ function iptvParsePaste(){
     for (let b = 6; b + 4 < cols.length; b += 5) {
       const dataB = (cols[b]||'').trim();
       const recB  = (cols[b+1]||'').trim().toLowerCase();
-      if (dataB && dataB !== '-' && recB === 'sim') cobQtd++;
+      if (dataB && dataB !== '-' && recB === 'sim' && (!modo2026 || dataB.endsWith('/2026'))) cobQtd++;
     }
     const inatv = ativo.toLowerCase() === 'não' || ativo.toLowerCase() === 'nao';
     return `<tr>
@@ -3207,14 +3251,15 @@ async function iptvAuditarImportacao(linhas){
   return { totalFonte:linhas.length, totalBanco:lista.length, encontrados:linhas.length-faltando.length, faltando, statusDivergente };
 }
 
-async function iptvAuditarFinanceiro(linhas){
+async function iptvAuditarFinanceiro(linhas, anoFiltro=null){
   const esperado={total:0,valor:0,meses:{}};
   for(const cols of linhas){
     for(let j=6;j+4<cols.length;j+=5){
       const rec=String(cols[j+1]||'').trim().toLowerCase();
       if(rec!=='sim'&&rec!=='s') continue;
-      const valor=iptvParseValor(cols[j+4]||'');
       const data=String(cols[j]||'').trim();
+      if(anoFiltro && !data.endsWith('/'+anoFiltro)) continue;
+      const valor=iptvParseValor(cols[j+4]||'');
       let mr='';
       const m=data.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
       if(m) mr=`${m[3]}-${String(m[2]).padStart(2,'0')}`;
@@ -3227,7 +3272,7 @@ async function iptvAuditarFinanceiro(linhas){
       }
     }
   }
-  const banco=await api('GET','/api/financeiro/auditoria');
+  const banco=await api('GET',anoFiltro?`/api/financeiro/auditoria?ano=${anoFiltro}`:'/api/financeiro/auditoria');
   const divergencias=[];
   if(banco.totalRecebimentos!==esperado.total)
     divergencias.push(`recebimentos: fonte ${esperado.total} × banco ${banco.totalRecebimentos}`);
@@ -3252,7 +3297,15 @@ async function iptvConfirmar(){
     const linhasOriginais=textoOriginal.split(/\r?\n/).map(l=>l.replace(/\r/g,''));
     let headerIdx=linhasOriginais.findIndex((l,i)=>i<5&&l.toLowerCase().includes('cliente')&&l.toLowerCase().includes('ativ'));
     const headerLinha=headerIdx>=0 ? linhasOriginais[headerIdx] : 'Cliente\tAtivo\tServidor\tMensal\tDia\tObs';
-    const linhasClientes=iptvLinhas.map(cols=>cols.join('\t'));
+    const modo2026 = iptvModoComplementar2026();
+    // Enviamos a linha original mesmo no modo 2026 para preservar a posição
+    // DATA/DATA2/... (bloco_origem). O backend filtra somente os pagamentos
+    // de 2026; assim conseguimos reconhecer um pagamento já importado sem
+    // confundir o bloco 12 de 2025 com o bloco 12 de 2026.
+    const linhasParaEnviar = iptvLinhas;
+    const linhasCom2026 = iptvLinhas.filter(cols=>iptvTemPagamentoAno(cols,2026));
+    if(modo2026 && !linhasCom2026.length){ toast('Nenhum pagamento de 2026 encontrado na planilha','err'); btn.disabled=false; btn.innerHTML='<i class="ti ti-upload"></i> Importar'; return; }
+    const linhasClientes=linhasParaEnviar.map(cols=>cols.join('\t'));
     const tamanhoLote=8;
     const total={clientesNovos:0,clientesAtualizados:0,totalRecebimentos:0,totalRecebimentosComData:0,totalRecebimentosSemData:0,totalValorRecebido:0};
     const progress=document.getElementById('iptv-import-progress');
@@ -3283,7 +3336,7 @@ async function iptvConfirmar(){
       progressBar.style.width=`${Math.round((i/totalClientes)*100)}%`;
       progressDetail.textContent=`Lote ${loteAtual} de ${totalLotes} • concluídos: ${concluidos}/${totalClientes}`;
 
-      const r=await api('POST','/api/importar-clientes-historico',{texto:textoLote});
+      const r=await api('POST','/api/importar-clientes-historico',{texto:textoLote, ano_pagamentos: modo2026 ? 2026 : null});
       total.clientesNovos+=r.clientesNovos||0;
       total.clientesAtualizados+=r.clientesAtualizados||0;
       total.totalRecebimentos+=r.totalRecebimentos||0;
@@ -3315,7 +3368,7 @@ async function iptvConfirmar(){
         progressTitle.textContent=`Reprocessando ${retryCols.length} cliente(s) com falha...`;
         progressPercent.textContent='99%';
         progressBar.style.width='99%';
-        const r2=await api('POST','/api/importar-clientes-historico',{texto:[headerLinha,...retryCols.map(c=>c.join('\t'))].join('\n')});
+        const r2=await api('POST','/api/importar-clientes-historico',{texto:[headerLinha,...retryCols.map(c=>c.join('\t'))].join('\n'), ano_pagamentos: modo2026 ? 2026 : null});
         total.clientesNovos+=r2.clientesNovos||0;
         total.clientesAtualizados+=r2.clientesAtualizados||0;
         total.totalRecebimentos+=r2.totalRecebimentos||0;
@@ -3338,6 +3391,8 @@ async function iptvConfirmar(){
       for(let j=6;j+4<cols.length;j+=5){
         const rec=String(cols[j+1]||'').trim().toLowerCase();
         if(rec!=='sim'&&rec!=='s') continue;
+        const dtFiltro=String(cols[j]||'').trim();
+        if(modo2026 && !dtFiltro.endsWith('/2026')) continue;
         esperadoRec++;
         const dt=String(cols[j]||'').trim();
         if(dt&&dt!=='-') esperadoComData++; else esperadoSemData++;
@@ -3348,7 +3403,7 @@ async function iptvConfirmar(){
       total.totalRecebimentosComData===esperadoComData &&
       total.totalRecebimentosSemData===esperadoSemData &&
       Math.abs(total.totalValorRecebido-esperadoValor)<0.01;
-    const auditoriaFinanceira=await iptvAuditarFinanceiro(iptvLinhas);
+    const auditoriaFinanceira=await iptvAuditarFinanceiro(iptvLinhas, modo2026 ? 2026 : null);
     const ok=auditoria.faltando.length===0 && auditoria.statusDivergente.length===0 && falhas.length===0 && finOk && auditoriaFinanceira.ok;
 
     if(ok){

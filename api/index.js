@@ -50,6 +50,21 @@ function err(res, msg, code=400) {
   return res.status(code).json({ erro: msg });
 }
 
+// Supabase/PostgREST pode limitar uma consulta a 1.000 registros.
+// Para relatórios e auditorias precisamos buscar todos os registros em páginas.
+async function selectAll(table, columns='*', configure=null, pageSize=1000) {
+  const all=[];
+  for(let from=0;;from+=pageSize){
+    let q=sb.from(table).select(columns);
+    if(configure) q=configure(q);
+    const {data,error}=await q.range(from, from+pageSize-1);
+    if(error) return {data:null,error};
+    all.push(...(data||[]));
+    if(!data || data.length < pageSize) break;
+  }
+  return {data:all,error:null};
+}
+
 // ── Router manual (sem express, roda como serverless) ────────────
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -225,14 +240,14 @@ export default async function handler(req, res) {
     return res.json(data);
   }
   if (url === '/cobrancas/meses') {
-    const { data:movs } = await sb.from('movimentos_financeiros').select('mes_ref,pago_em');
+    const { data:movs } = await selectAll('movimentos_financeiros','mes_ref,pago_em');
     const meses = new Set();
     (movs||[]).forEach(r=>{ if(r.mes_ref) meses.add(r.mes_ref); if(r.pago_em) meses.add(String(r.pago_em).slice(0,7)); });
     return res.json([...meses].sort().reverse());
   }
   if (url === '/cobrancas/inadimplentes') {
     await marcarVencidos();
-    const { data } = await sb.from('movimentos_financeiros').select('*').eq('status','vencido').order('vencimento');
+    const { data } = await selectAll('movimentos_financeiros','*',q=>q.eq('status','vencido').order('vencimento'));
     return res.json(data);
   }
   if (url === '/cobrancas/gerar' && req.method === 'POST') {
@@ -336,8 +351,7 @@ export default async function handler(req, res) {
 
   // ─── AUDITORIA FINANCEIRA ─────────────────────────────────────
   if (url === '/financeiro/auditoria' && req.method === 'GET') {
-    const { data:movs, error:eMovs } = await sb.from('movimentos_financeiros')
-      .select('cliente_id,cliente_nome,servidor,mes_ref,pago_em,status,valor_pago,origem');
+    const { data:movs, error:eMovs } = await selectAll('movimentos_financeiros','cliente_id,cliente_nome,servidor,mes_ref,pago_em,status,valor_pago,origem');
     if (eMovs) return err(res, `Erro ao auditar financeiro: ${eMovs.message}`, 500);
 
     const rows=movs||[];
@@ -391,9 +405,9 @@ export default async function handler(req, res) {
   if (url === '/financeiro') {
     await marcarVencidos();
     const { de, ate } = params;
-    const { data:movs, error:eMovs } = await sb.from('movimentos_financeiros').select('*');
-    const { data:todasOv } = await sb.from('outras_vendas').select('*');
-    const { data:todasDp } = await sb.from('despesas').select('*');
+    const { data:movs, error:eMovs } = await selectAll('movimentos_financeiros','*');
+    const { data:todasOv } = await selectAll('outras_vendas','*');
+    const { data:todasDp } = await selectAll('despesas','*');
     if (eMovs) return err(res, `Erro ao carregar financeiro: ${eMovs.message}`, 500);
 
     const movimentos=movs||[], ovs0=todasOv||[], dps0=todasDp||[];
@@ -643,7 +657,7 @@ export default async function handler(req, res) {
       const norm=normalizarServidor(c.servidor);
       if (norm!==c.servidor) { await sb.from('clientes').update({ servidor:norm }).eq('id',c.id); atualizados++; }
     }
-    const { data:cobs } = await sb.from('movimentos_financeiros').select('id,servidor');
+    const { data:cobs } = await selectAll('movimentos_financeiros','id,servidor');
     for (const c of cobs) { const norm=normalizarServidor(c.servidor); if (norm!==c.servidor) await sb.from('movimentos_financeiros').update({ servidor:norm }).eq('id',c.id); }
     return res.json({ ok:true, clientes_atualizados:atualizados });
   }

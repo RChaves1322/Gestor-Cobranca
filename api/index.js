@@ -334,6 +334,34 @@ export default async function handler(req, res) {
     return res.json({ ok:true });
   }
 
+  // ─── AUDITORIA FINANCEIRA ─────────────────────────────────────
+  if (url === '/financeiro/auditoria' && req.method === 'GET') {
+    const { data:movs, error:eMovs } = await sb.from('movimentos_financeiros')
+      .select('cliente_id,cliente_nome,servidor,mes_ref,pago_em,status,valor_pago,origem');
+    if (eMovs) return err(res, `Erro ao auditar financeiro: ${eMovs.message}`, 500);
+
+    const rows=movs||[];
+    const receb=rows.filter(r=>r.status==='pago' && r.valor_pago!=null);
+    const meses={};
+    for(const r of receb){
+      const mr=(r.pago_em||r.mes_ref||'').slice(0,7);
+      if(!mr) continue;
+      if(!meses[mr]) meses[mr]={mes_ref:mr,qtd:0,valor:0,clientes:0,clientes_ids:new Set()};
+      meses[mr].qtd++;
+      meses[mr].valor+=Number(r.valor_pago||0);
+      if(r.cliente_id) meses[mr].clientes_ids.add(r.cliente_id);
+    }
+    const porMes=Object.values(meses).sort((a,b)=>a.mes_ref.localeCompare(b.mes_ref)).map(r=>({
+      mes_ref:r.mes_ref,qtd:r.qtd,valor:Number(r.valor.toFixed(2)),clientes:r.clientes_ids.size
+    }));
+    return res.json({
+      totalMovimentos:rows.length,
+      totalRecebimentos:receb.length,
+      totalValorRecebido:Number(receb.reduce((s,r)=>s+Number(r.valor_pago||0),0).toFixed(2)),
+      porMes
+    });
+  }
+
   // ─── DASHBOARD ────────────────────────────────────────────────
   if (url === '/dashboard') {
     await marcarVencidos();
@@ -670,6 +698,7 @@ export default async function handler(req, res) {
         const obs=(cols[5]||'').trim();
         const status=ativoRaw==='sim'?'ativo':'inativo';
 
+        // Localiza/cria servidor. O upsert é idempotente.
         if (servidorFinal) {
           const { error:eSrv } = await sb.from('servidores').upsert(
             { id:uid(), nome:servidorFinal, criado:new Date().toISOString() },
@@ -678,6 +707,8 @@ export default async function handler(req, res) {
           if(eSrv) throw eSrv;
         }
 
+        // Cliente é identificado por NOME + SERVIDOR. Isso preserva casos como
+        // "Denilson9757" / "Denilson9757 002" e clientes homônimos.
         let clienteExist=null;
         const buscaExata=await sb.from('clientes').select('*').eq('nome',nomeRaw).eq('servidor',servidorFinal).limit(1);
         if(buscaExata.error) throw buscaExata.error;
@@ -702,6 +733,10 @@ export default async function handler(req, res) {
           cliente=data; clientesNovos++;
         }
 
+        // Monta TODOS os recebimentos do cliente primeiro e grava em uma única
+        // operação. Antes fazíamos um upsert por recebimento; com centenas de
+        // operações isso aumentava a chance de importação parcial.
+        const movimentos=[];
         let blocoStart=6, bloco=0;
         while(blocoStart+4<cols.length) {
           bloco++;
@@ -721,7 +756,7 @@ export default async function handler(req, res) {
           const mesRef=dataISO ? dataISO.slice(0,7) : null;
           const receiptId=`mov_${cliente.id}_${String(bloco).padStart(2,'0')}`;
 
-          const { error:eRec }=await sb.from('movimentos_financeiros').upsert({
+          movimentos.push({
             id:receiptId,
             cliente_id:cliente.id,
             cliente_nome:nomeRaw,
@@ -739,21 +774,30 @@ export default async function handler(req, res) {
             bloco_origem:bloco,
             origem:'importacao_historico',
             criado:new Date().toISOString()
-          },{onConflict:'id'});
-          if(eRec) throw eRec;
-
-          totalRecebimentos++;
-          totalValorRecebido+=valorRecebido;
-          if(dataISO) totalRecebimentosComData++; else totalRecebimentosSemData++;
+          });
         }
 
-        return {ok:true,detalhe:{indice:numeroLinha,nome:nomeRaw,servidor:servidorFinal,status}};
+        if(movimentos.length){
+          const { error:eRec }=await sb.from('movimentos_financeiros').upsert(movimentos,{onConflict:'id'});
+          if(eRec) throw eRec;
+        }
+
+        for(const m of movimentos){
+          totalRecebimentos++;
+          totalValorRecebido+=Number(m.valor_pago||0);
+          if(m.pago_em) totalRecebimentosComData++; else totalRecebimentosSemData++;
+        }
+
+        return {ok:true,detalhe:{indice:numeroLinha,nome:nomeRaw,servidor:servidorFinal,status,recebimentos:movimentos.length,valorRecebido:movimentos.reduce((s,m)=>s+Number(m.valor_pago||0),0)}};
       } catch(e) {
         return {ok:false,erro:{indice:numeroLinha,nome:(linha.split('\t')[0]||'').trim(),mensagem:e?.message||String(e)}};
       }
     };
 
-    const resultados=await Promise.all(dataLinhas.map((linha,i)=>processarLinha(linha,i+1)));
+    // Processamento sequencial dentro de cada lote: reduz concorrência no Supabase
+    // e garante que uma falha seja atribuída a uma linha específica.
+    const resultados=[];
+    for(let i=0;i<dataLinhas.length;i++) resultados.push(await processarLinha(dataLinhas[i],i+1));
     for(const r of resultados) {
       if(r.ok) processados.push(r.detalhe); else erros.push(r.erro);
     }

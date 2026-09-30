@@ -3207,6 +3207,41 @@ async function iptvAuditarImportacao(linhas){
   return { totalFonte:linhas.length, totalBanco:lista.length, encontrados:linhas.length-faltando.length, faltando, statusDivergente };
 }
 
+async function iptvAuditarFinanceiro(linhas){
+  const esperado={total:0,valor:0,meses:{}};
+  for(const cols of linhas){
+    for(let j=6;j+4<cols.length;j+=5){
+      const rec=String(cols[j+1]||'').trim().toLowerCase();
+      if(rec!=='sim'&&rec!=='s') continue;
+      const valor=iptvParseValor(cols[j+4]||'');
+      const data=String(cols[j]||'').trim();
+      let mr='';
+      const m=data.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if(m) mr=`${m[3]}-${String(m[2]).padStart(2,'0')}`;
+      esperado.total++;
+      esperado.valor+=valor;
+      if(mr){
+        if(!esperado.meses[mr]) esperado.meses[mr]={qtd:0,valor:0};
+        esperado.meses[mr].qtd++;
+        esperado.meses[mr].valor+=valor;
+      }
+    }
+  }
+  const banco=await api('GET','/api/financeiro/auditoria');
+  const divergencias=[];
+  if(banco.totalRecebimentos!==esperado.total)
+    divergencias.push(`recebimentos: fonte ${esperado.total} × banco ${banco.totalRecebimentos}`);
+  if(Math.abs(Number(banco.totalValorRecebido||0)-Number(esperado.valor||0))>=0.01)
+    divergencias.push(`valor: fonte ${fmtV(esperado.valor)} × banco ${fmtV(banco.totalValorRecebido)}`);
+  const mapaBanco=new Map((banco.porMes||[]).map(r=>[r.mes_ref,r]));
+  for(const [mr,e] of Object.entries(esperado.meses)){
+    const b=mapaBanco.get(mr)||{qtd:0,valor:0};
+    if(Number(b.qtd)!==Number(e.qtd) || Math.abs(Number(b.valor||0)-Number(e.valor||0))>=0.01)
+      divergencias.push(`${mr}: fonte ${e.qtd} / ${fmtV(e.valor)} × banco ${b.qtd} / ${fmtV(b.valor)}`);
+  }
+  return {ok:divergencias.length===0,esperado,banco,divergencias};
+}
+
 async function iptvConfirmar(){
   if(!iptvLinhas.length){ toast('Nenhuma linha para importar','err'); return; }
   const btn=document.getElementById('iptv-btn-importar');
@@ -3313,19 +3348,21 @@ async function iptvConfirmar(){
       total.totalRecebimentosComData===esperadoComData &&
       total.totalRecebimentosSemData===esperadoSemData &&
       Math.abs(total.totalValorRecebido-esperadoValor)<0.01;
-    const ok=auditoria.faltando.length===0 && auditoria.statusDivergente.length===0 && falhas.length===0 && finOk;
+    const auditoriaFinanceira=await iptvAuditarFinanceiro(iptvLinhas);
+    const ok=auditoria.faltando.length===0 && auditoria.statusDivergente.length===0 && falhas.length===0 && finOk && auditoriaFinanceira.ok;
 
     if(ok){
       progressTitle.textContent='✓ Importação concluída e conferida';
-      progressDetail.innerHTML=`<strong>${auditoria.encontrados}/${auditoria.totalFonte}</strong> clientes conferidos • <strong>${total.totalRecebimentos}</strong> recebimentos • <strong>${fmtV(total.totalValorRecebido)}</strong> recebidos${total.totalRecebimentosSemData?` • ${total.totalRecebimentosSemData} sem data`:''}`;
+      progressDetail.innerHTML=`<strong>${auditoria.encontrados}/${auditoria.totalFonte}</strong> clientes conferidos • <strong>${auditoriaFinanceira.banco.totalRecebimentos}</strong> recebimentos • <strong>${fmtV(auditoriaFinanceira.banco.totalValorRecebido)}</strong> recebidos • financeiro conferido`;
       btn.innerHTML='<i class="ti ti-check"></i> Concluído';
       setTimeout(()=>closeOv('ov-iptv'),900);
       toast(`✓ ${auditoria.encontrados} clientes conferidos. Nenhum ficou faltando.`);
     }else{
       const falt=auditoria.faltando.map(x=>`${x.nome} (${x.servidor||'sem servidor'})`).slice(0,12);
       const div=auditoria.statusDivergente.length;
+      const finDiv=auditoriaFinanceira.divergencias.slice(0,8);
       progressTitle.textContent='⚠ Importação concluída com divergências';
-      progressDetail.innerHTML=`Fonte: <strong>${auditoria.totalFonte}</strong> • Encontrados: <strong>${auditoria.encontrados}</strong> • Faltando: <strong>${auditoria.faltando.length}</strong> • Status divergente: <strong>${div}</strong> • Falhas: <strong>${falhas.length}</strong><br><span style="display:block;margin-top:6px;color:var(--red)">${falt.join('<br>')}</span>`;
+      progressDetail.innerHTML=`Fonte: <strong>${auditoria.totalFonte}</strong> • Encontrados: <strong>${auditoria.encontrados}</strong> • Faltando: <strong>${auditoria.faltando.length}</strong> • Status divergente: <strong>${div}</strong> • Falhas: <strong>${falhas.length}</strong>${finDiv.length?`<br><span style="display:block;margin-top:6px;color:var(--red)"><strong>Auditoria financeira:</strong><br>${finDiv.join('<br>')}</span>`:''}${falt.length?`<br><span style="display:block;margin-top:6px;color:var(--red)">${falt.join('<br>')}</span>`:''}`;
       btn.disabled=false;
       btn.innerHTML='<i class="ti ti-refresh"></i> Tentar novamente';
       toast(`⚠ ${auditoria.faltando.length} cliente(s) ainda não conferiram.`,'err');

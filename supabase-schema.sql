@@ -1,14 +1,13 @@
 -- GestorCob — Schema para Supabase (PostgreSQL)
--- Execute este script no SQL Editor do Supabase
+-- Modelo financeiro unificado:
+-- uma única tabela guarda tanto cobranças quanto pagamentos.
 
--- Servidores
 CREATE TABLE IF NOT EXISTS servidores (
   id TEXT PRIMARY KEY,
   nome TEXT NOT NULL UNIQUE,
   criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Clientes
 CREATE TABLE IF NOT EXISTS clientes (
   id TEXT PRIMARY KEY,
   nome TEXT NOT NULL,
@@ -21,55 +20,38 @@ CREATE TABLE IF NOT EXISTS clientes (
   criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Cobranças
-CREATE TABLE IF NOT EXISTS cobrancas (
+-- Tabela financeira única.
+-- Uma linha representa uma obrigação mensal e, quando paga, o próprio registro
+-- passa a guardar a data/valor efetivamente recebidos.
+-- Não existe UNIQUE(cliente_id, mes_ref), pois o histórico legado pode ter
+-- mais de um recebimento no mesmo mês.
+CREATE TABLE IF NOT EXISTS movimentos_financeiros (
   id TEXT PRIMARY KEY,
   cliente_id TEXT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
   cliente_nome TEXT NOT NULL,
   servidor TEXT,
-  valor NUMERIC(10,2) NOT NULL,
-  vencimento DATE NOT NULL,
-  mes_ref TEXT NOT NULL,
+  tipo_movimento TEXT NOT NULL DEFAULT 'mensalidade',
+  valor NUMERIC(10,2) NOT NULL DEFAULT 0,
+  vencimento DATE,
+  mes_ref TEXT,
   status TEXT NOT NULL DEFAULT 'pendente',
   pago_em DATE,
   valor_pago NUMERIC(10,2),
-  obs_pagamento TEXT DEFAULT '',
-  criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Recebimentos históricos
--- Cada evento DATA + Recebido=Sim é preservado individualmente.
--- Não usar mes_ref como chave de cobrança: pode haver vários recebimentos no mesmo mês.
-CREATE TABLE IF NOT EXISTS recebimentos (
-  id TEXT PRIMARY KEY,
-  cliente_id TEXT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
-  cliente_nome TEXT NOT NULL,
-  servidor TEXT,
-  data_recebimento DATE,
-  mes_ref TEXT,
-  valor_original NUMERIC(10,2) NOT NULL DEFAULT 0,
   desconto NUMERIC(10,2) NOT NULL DEFAULT 0,
-  valor_recebido NUMERIC(10,2) NOT NULL DEFAULT 0,
-  descricao TEXT DEFAULT '',
+  obs_pagamento TEXT DEFAULT '',
   pontos INTEGER NOT NULL DEFAULT 0,
   bloco_origem INTEGER NOT NULL DEFAULT 0,
-  origem TEXT NOT NULL DEFAULT 'importacao_historico',
+  origem TEXT NOT NULL DEFAULT 'sistema',
   criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_recebimentos_mes_ref ON recebimentos(mes_ref);
-CREATE INDEX IF NOT EXISTS idx_recebimentos_data ON recebimentos(data_recebimento);
-CREATE INDEX IF NOT EXISTS idx_recebimentos_cliente ON recebimentos(cliente_id);
-CREATE INDEX IF NOT EXISTS idx_recebimentos_servidor ON recebimentos(servidor);
+CREATE INDEX IF NOT EXISTS idx_mov_fin_mes_ref ON movimentos_financeiros(mes_ref);
+CREATE INDEX IF NOT EXISTS idx_mov_fin_data_pagamento ON movimentos_financeiros(pago_em);
+CREATE INDEX IF NOT EXISTS idx_mov_fin_vencimento ON movimentos_financeiros(vencimento);
+CREATE INDEX IF NOT EXISTS idx_mov_fin_status ON movimentos_financeiros(status);
+CREATE INDEX IF NOT EXISTS idx_mov_fin_cliente ON movimentos_financeiros(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_mov_fin_servidor ON movimentos_financeiros(servidor);
 
--- Índices úteis
-CREATE INDEX IF NOT EXISTS idx_cobrancas_mes_ref ON cobrancas(mes_ref);
-CREATE INDEX IF NOT EXISTS idx_cobrancas_status ON cobrancas(status);
-CREATE INDEX IF NOT EXISTS idx_cobrancas_cliente ON cobrancas(cliente_id);
-CREATE INDEX IF NOT EXISTS idx_cobrancas_pago_em ON cobrancas(pago_em);
-CREATE INDEX IF NOT EXISTS idx_cobrancas_vencimento ON cobrancas(vencimento);
-
--- Outras Vendas (Receitas)
 CREATE TABLE IF NOT EXISTS outras_vendas (
   id TEXT PRIMARY KEY,
   data DATE NOT NULL,
@@ -84,7 +66,6 @@ CREATE TABLE IF NOT EXISTS outras_vendas (
   criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Despesas
 CREATE TABLE IF NOT EXISTS despesas (
   id TEXT PRIMARY KEY,
   data DATE NOT NULL,
@@ -99,58 +80,32 @@ CREATE TABLE IF NOT EXISTS despesas (
   criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Tipos de Receita
 CREATE TABLE IF NOT EXISTS tipos_receita (
   id TEXT PRIMARY KEY,
   nome TEXT NOT NULL UNIQUE,
   criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Tipos de Despesa
 CREATE TABLE IF NOT EXISTS tipos_despesa (
   id TEXT PRIMARY KEY,
   nome TEXT NOT NULL UNIQUE,
   criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Configurações
 CREATE TABLE IF NOT EXISTS configuracoes (
   chave TEXT PRIMARY KEY,
   valor TEXT NOT NULL
 );
 
--- Defaults de configuração
 INSERT INTO configuracoes(chave, valor) VALUES
-  ('msg_pendente', 'Olá, *{nome}*! 👋
-
-Passando para lembrar que você possui {qtd} parcela(s) com vencimento próximo:
-
-{lista}
-
-💰 *Total: R$ {total}*
-
-Chave Pix: *{pix}*
-
-Qualquer dúvida, estamos à disposição! 😊'),
-  ('msg_vencido', 'Olá, *{nome}*! ⚠️
-
-Identificamos {qtd} parcela(s) em *atraso*:
-
-{lista}
-
-💰 *Total em atraso: R$ {total}*
-
-Chave Pix: *{pix}*
-
-Por favor, regularize para evitar suspensão do serviço. 🙏'),
+  ('msg_pendente', 'Olá, *{nome}*! 👋\n\nPassando para lembrar que você possui {qtd} parcela(s) com vencimento próximo:\n\n{lista}\n\n💰 *Total: R$ {total}*\n\nChave Pix: *{pix}*\n\nQualquer dúvida, estamos à disposição! 😊'),
+  ('msg_vencido', 'Olá, *{nome}*! ⚠️\n\nIdentificamos {qtd} parcela(s) em *atraso*:\n\n{lista}\n\n💰 *Total em atraso: R$ {total}*\n\nChave Pix: *{pix}*\n\nPor favor, regularize para evitar suspensão do serviço. 🙏'),
   ('pix', '123456')
 ON CONFLICT(chave) DO NOTHING;
 
--- Desabilitar RLS (acesso via service_role key do backend)
 ALTER TABLE servidores DISABLE ROW LEVEL SECURITY;
 ALTER TABLE clientes DISABLE ROW LEVEL SECURITY;
-ALTER TABLE cobrancas DISABLE ROW LEVEL SECURITY;
-ALTER TABLE recebimentos DISABLE ROW LEVEL SECURITY;
+ALTER TABLE movimentos_financeiros DISABLE ROW LEVEL SECURITY;
 ALTER TABLE outras_vendas DISABLE ROW LEVEL SECURITY;
 ALTER TABLE despesas DISABLE ROW LEVEL SECURITY;
 ALTER TABLE tipos_receita DISABLE ROW LEVEL SECURITY;

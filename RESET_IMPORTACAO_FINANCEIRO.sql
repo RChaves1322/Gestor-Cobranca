@@ -1,36 +1,41 @@
--- GestorCob - preparação para nova importação
--- Execute no Supabase SQL Editor.
--- Este script apaga SOMENTE os dados de clientes/cobranças/recebimentos/servidores.
--- Outras vendas, despesas e configurações são preservadas.
+-- GestorCob — RESET para a nova importação com tabela financeira única.
+-- PRESERVA outras_vendas, despesas, tipos e configurações.
+-- APAGA clientes, servidores e todo o histórico financeiro mensal.
 
-CREATE TABLE IF NOT EXISTS recebimentos (
+DROP TABLE IF EXISTS recebimentos CASCADE;
+DROP TABLE IF EXISTS cobrancas CASCADE;
+DROP TABLE IF EXISTS movimentos_financeiros CASCADE;
+
+CREATE TABLE movimentos_financeiros (
   id TEXT PRIMARY KEY,
   cliente_id TEXT NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
   cliente_nome TEXT NOT NULL,
   servidor TEXT,
-  data_recebimento DATE,
+  tipo_movimento TEXT NOT NULL DEFAULT 'mensalidade',
+  valor NUMERIC(10,2) NOT NULL DEFAULT 0,
+  vencimento DATE,
   mes_ref TEXT,
-  valor_original NUMERIC(10,2) NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pendente',
+  pago_em DATE,
+  valor_pago NUMERIC(10,2),
   desconto NUMERIC(10,2) NOT NULL DEFAULT 0,
-  valor_recebido NUMERIC(10,2) NOT NULL DEFAULT 0,
-  descricao TEXT DEFAULT '',
+  obs_pagamento TEXT DEFAULT '',
   pontos INTEGER NOT NULL DEFAULT 0,
   bloco_origem INTEGER NOT NULL DEFAULT 0,
-  origem TEXT NOT NULL DEFAULT 'importacao_historico',
+  origem TEXT NOT NULL DEFAULT 'sistema',
   criado TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_recebimentos_mes_ref ON recebimentos(mes_ref);
-CREATE INDEX IF NOT EXISTS idx_recebimentos_data ON recebimentos(data_recebimento);
-CREATE INDEX IF NOT EXISTS idx_recebimentos_cliente ON recebimentos(cliente_id);
-CREATE INDEX IF NOT EXISTS idx_recebimentos_servidor ON recebimentos(servidor);
+CREATE INDEX idx_mov_fin_mes_ref ON movimentos_financeiros(mes_ref);
+CREATE INDEX idx_mov_fin_data_pagamento ON movimentos_financeiros(pago_em);
+CREATE INDEX idx_mov_fin_vencimento ON movimentos_financeiros(vencimento);
+CREATE INDEX idx_mov_fin_status ON movimentos_financeiros(status);
+CREATE INDEX idx_mov_fin_cliente ON movimentos_financeiros(cliente_id);
+CREATE INDEX idx_mov_fin_servidor ON movimentos_financeiros(servidor);
 
-DELETE FROM recebimentos;
-DELETE FROM cobrancas;
 DELETE FROM clientes;
 DELETE FROM servidores;
 
 SELECT 'clientes' AS tabela, COUNT(*) AS registros FROM clientes
-UNION ALL SELECT 'cobrancas', COUNT(*) FROM cobrancas
-UNION ALL SELECT 'recebimentos', COUNT(*) FROM recebimentos
-UNION ALL SELECT 'servidores', COUNT(*) FROM servidores;
+UNION ALL SELECT 'servidores', COUNT(*) FROM servidores
+UNION ALL SELECT 'movimentos_financeiros', COUNT(*) FROM movimentos_financeiros;

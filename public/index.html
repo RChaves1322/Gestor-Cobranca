@@ -1478,7 +1478,7 @@ async function renderCobs(vencerEmDias){
     const hojeISO2 = fmtISO2(hoje2);
 
     document.getElementById('cobs-table').innerHTML=lista.length===0
-      ?'<div class="empty"><i class="ti ti-receipt"></i><p>Nenhuma cobrança encontrada.</p></div>'
+      ?'<div class="empty"><i class="ti ti-receipt"></i><p>Nenhum movimento financeiro encontrado.</p></div>'
       :`<table><thead><tr>
           <th>Cliente</th><th>Servidor</th>
           <th>Vencimento</th><th>Pagamento</th>
@@ -1998,7 +1998,14 @@ async function cancelCob(id){
 async function gerarMes(){
   try{
     const r=await api('POST','/api/cobrancas/gerar');
-    toast(r.novos>0?`${r.novos} cobrança(s) gerada(s).`:'Cobranças do mês já foram geradas.');
+    if(r.novos>0){
+      const partes=[`${r.novos} cobrança(s) gerada(s).`];
+      if(r.jaPagosHistorico) partes.push(`${r.jaPagosHistorico} já constavam como pagas no histórico.`);
+      if(r.jaExistentes) partes.push(`${r.jaExistentes} já possuíam cobrança.`);
+      toast(partes.join(' '));
+    }else{
+      toast(`Nenhuma cobrança nova. ${r.jaPagosHistorico||0} paga(s) no histórico e ${r.jaExistentes||0} já existente(s).`);
+    }
     if(currentPage==='dashboard')renderDash();else renderCobs();
   }catch{toast('Erro ao gerar','err');}
 }
@@ -2016,7 +2023,7 @@ async function abrirHist(id,nome){
       <div class="hist-stat"><div class="hist-stat-label">Vencidas</div><div class="hist-stat-val" style="color:var(--red)">${vc.length}</div></div>
       <div class="hist-stat"><div class="hist-stat-label">Em aberto</div><div class="hist-stat-val" style="color:var(--amber)">${pn.length}</div></div>`;
     document.getElementById('h-lista').innerHTML=hist.length===0
-      ?'<div class="empty"><i class="ti ti-receipt-off"></i><p>Nenhuma cobrança encontrada.</p></div>'
+      ?'<div class="empty"><i class="ti ti-receipt-off"></i><p>Nenhum movimento financeiro encontrado.</p></div>'
       :`<table><thead><tr>
           <th style="width:20%">Referência</th><th style="width:15%">Vencimento</th><th style="width:15%">Pagamento</th>
           <th style="width:14%">Valor</th><th style="width:14%">Valor pago</th><th style="width:22%">Status</th>
@@ -3377,10 +3384,13 @@ function openSidebar(){
   document.body.style.overflow='hidden';
 }
 function closeSidebar(){
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('sidebar-overlay').classList.remove('open');
+  const sidebar=document.getElementById('sidebar');
+  const overlay=document.getElementById('sidebar-overlay');
+  if(sidebar) sidebar.classList.remove('open');
+  if(overlay) overlay.classList.remove('open');
   document.body.style.overflow='';
 }
+function closeSideBar(){ closeSidebar(); }
 document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeSidebar(); });
 
 /* ── INIT ── */

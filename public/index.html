@@ -186,6 +186,11 @@ tbody tr:hover td{background:var(--bg3)}
 
 /* DISTRIBUIÇÃO */
 .dist-bar-wrap{margin-bottom:.5rem}
+.fin-visao{display:inline-flex;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden}
+.fin-visao button{background:var(--bg3);color:var(--muted);border:none;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;font-family:inherit}
+.fin-visao button.active{background:var(--accent);color:#fff}
+.fin-ajuda{font-size:12px;color:var(--muted);margin:-.25rem 0 1rem}
+.fin-metric-sub{font-size:11px;color:var(--muted);margin-top:4px}
 .dist-bar-label{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;color:var(--muted)}
 .dist-bar-label span:first-child{color:var(--text);font-weight:500}
 .dist-bar{height:6px;background:var(--bg3);border-radius:99px;overflow:hidden}
@@ -398,6 +403,10 @@ tbody tr:hover td{background:var(--bg3)}
 .login-field{margin-bottom:15px}.login-field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}.login-field input{width:100%;padding:12px 13px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);outline:none}.login-field input:focus{border-color:var(--accent)}
 .login-btn{width:100%;padding:12px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;margin-top:5px}.login-btn:disabled{opacity:.6;cursor:wait}.login-error{display:none;background:var(--red-bg);border:1px solid var(--red);color:#ff9b9b;border-radius:8px;padding:10px;font-size:12px;margin-bottom:14px}.login-error.show{display:block}
 .auth-user{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:12px;color:var(--muted)}.auth-user button{padding:7px 10px}
+/* Valores ocultos (Financeiro) */
+.money{position:relative;white-space:nowrap}
+.valores-ocultos .money{color:transparent !important;user-select:none}
+.valores-ocultos .money::after{content:'R$ •••••';position:absolute;left:0;top:50%;transform:translateY(-50%);color:var(--muted);letter-spacing:1px;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -423,9 +432,9 @@ tbody tr:hover td{background:var(--bg3)}
   </div>
   <nav class="nav">
     <div class="nav-group-label">Principal</div>
-    <button class="nav-item active" onclick="showPage('dashboard');closeSidebar()"><i class="ti ti-chart-bar"></i><span>Painel</span></button>
+    <button class="nav-item" onclick="showPage('dashboard');closeSidebar()"><i class="ti ti-chart-bar"></i><span>Painel</span></button>
     <button class="nav-item" onclick="showPage('clientes');closeSidebar()"><i class="ti ti-users"></i><span>Clientes</span></button>
-    <button class="nav-item" onclick="showPage('cobrancas');closeSidebar()"><i class="ti ti-receipt"></i><span>Cobranças</span></button>
+    <button class="nav-item active" onclick="showPage('cobrancas');closeSidebar()"><i class="ti ti-receipt"></i><span>Cobranças</span></button>
     <button class="nav-item" onclick="showPage('inadimplentes');closeSidebar()"><i class="ti ti-alert-triangle"></i><span>Inadimplentes</span><span class="nav-badge" id="badge-inad" style="display:none">0</span></button>
     <button class="nav-item" onclick="showPage('financeiro');closeSidebar()"><i class="ti ti-report-money"></i><span>Financeiro</span></button>
     <button class="nav-item" onclick="showPage('outras-vendas');closeSidebar()"><i class="ti ti-shopping-cart"></i><span>Receitas</span></button>
@@ -441,13 +450,13 @@ tbody tr:hover td{background:var(--bg3)}
 <div class="main">
   <header class="topbar">
     <button class="hamburger" onclick="openSidebar()" aria-label="Menu"><i class="ti ti-menu-2"></i></button>
-    <div class="topbar-title" id="topbar-title">Painel</div>
+    <div class="topbar-title" id="topbar-title">Cobranças</div>
     <div class="topbar-actions" id="topbar-actions"></div><div class="auth-user"><span id="auth-user-email"></span><button class="btn btn-sm" onclick="sair()"><i class="ti ti-logout"></i> Sair</button></div>
   </header>
   <main class="content">
 
     <!-- PAINEL -->
-    <div id="page-dashboard" class="page active">
+    <div id="page-dashboard" class="page">
       <div class="metrics" id="metrics"><div class="metric"><div class="metric-label">Carregando...</div></div></div>
       <div class="card">
         <div class="card-header">
@@ -472,7 +481,7 @@ tbody tr:hover td{background:var(--bg3)}
     </div>
 
     <!-- COBRANÇAS -->
-    <div id="page-cobrancas" class="page">
+    <div id="page-cobrancas" class="page active">
       <div class="filter-bar">
         <select id="fm" onchange="cobsLimparVencer();renderCobs()"></select>
         <select id="fs" onchange="cobsLimparVencer();renderCobs()">
@@ -610,10 +619,23 @@ tbody tr:hover td{background:var(--bg3)}
         <input type="month" id="fin-ate" style="max-width:160px">
         <button class="btn btn-primary btn-sm" onclick="renderFinanceiro()"><i class="ti ti-search"></i> Filtrar</button>
         <button class="btn btn-sm" onclick="limparFiltroFin()"><i class="ti ti-x"></i> Limpar</button>
+        <div class="fin-visao" style="margin-left:auto">
+          <button id="fv-caixa" class="active" onclick="finSetVisao('caixa')" title="Pela data em que o dinheiro entrou"><i class="ti ti-cash"></i> Caixa</button>
+          <button id="fv-comp" onclick="finSetVisao('competencia')" title="Pelo mês de referência da mensalidade"><i class="ti ti-calendar-month"></i> Competência</button>
+        </div>
       </div>
+      <div id="fin-visao-ajuda" class="fin-ajuda"></div>
 
       <!-- Métricas de mensalidades -->
       <div id="fin-totais" class="fin-grid"></div>
+
+      <!-- Receita antecipada -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><i class="ti ti-calendar-dollar" style="margin-right:6px"></i>Receita antecipada — já recebida de meses futuros</span>
+        </div>
+        <div class="card-body" id="fin-antecipada"><div class="loading">Carregando...</div></div>
+      </div>
 
       <!-- Resumo geral Receitas vs Despesas com filtro próprio -->
       <div class="card">
@@ -645,19 +667,20 @@ tbody tr:hover td{background:var(--bg3)}
         <div class="table-wrap" id="fin-tabela"><div class="loading">Carregando...</div></div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
+      <div style="display:grid;grid-template-columns:1fr;gap:1.25rem">
 
-        <!-- Distribuição por servidor com filtro de mês -->
+        <!-- Margem por servidor com filtro de mês -->
         <div class="card">
           <div class="card-header" style="flex-wrap:wrap;gap:8px">
-            <span class="card-title">Distribuição por servidor</span>
+            <span class="card-title">Margem por servidor</span>
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
               <select id="dist-mes" style="font-size:12px;padding:5px 8px;max-width:160px" onchange="renderDistServidor()">
                 <option value="">Todo o período</option>
               </select>
             </div>
           </div>
-          <div class="card-body" id="fin-dist"></div>
+          <div class="table-wrap" id="fin-dist"></div>
+          <div class="fin-ajuda" style="padding:0 1rem 1rem;margin:0">Custo = despesas cujo campo <b>Responsável / Servidor</b> é o nome do servidor (ex.: renovação de créditos). Em Competência, uma renovação que cobre vários meses é dividida entre eles.</div>
         </div>
 
         <!-- Clientes ativos por mês com filtro próprio -->
@@ -1072,11 +1095,14 @@ tbody tr:hover td{background:var(--bg3)}
           <option value="">Selecione...</option>
         </select>
       </div>
-      <div class="form-group full"><label class="form-label">Responsável / Servidor</label><input id="dp-responsavel" placeholder="Ex: Slim, Club, UniTV, Painel..."></div>
+      <div class="form-group full"><label class="form-label">Responsável / Servidor</label><input id="dp-responsavel" list="dp-lista-servidores" placeholder="Ex: Slim, Club, UniTV, Painel..."><datalist id="dp-lista-servidores"></datalist>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Para renovação de servidor, escolha o servidor da lista: o valor entra como custo dele na <b>Margem por servidor</b>.</div></div>
       <div class="form-group full"><label class="form-label">Descrição / Cliente</label><input id="dp-descricao" placeholder="Descrição ou nome relacionado"></div>
       <div class="form-group"><label class="form-label">Valor unitário (R$) *</label><input type="number" step="0.01" id="dp-valor-un" oninput="dpCalcTotal()"></div>
       <div class="form-group"><label class="form-label">Quantidade</label><input type="number" id="dp-qtde" value="1" min="1" oninput="dpCalcTotal()"></div>
-      <div class="form-group full"><label class="form-label">Total (R$)</label><input type="number" step="0.01" id="dp-total" style="color:var(--red);font-weight:600"></div>
+      <div class="form-group"><label class="form-label">Total (R$)</label><input type="number" step="0.01" id="dp-total" style="color:var(--red);font-weight:600"></div>
+      <div class="form-group"><label class="form-label">Cobre quantos meses?</label><input type="number" id="dp-meses" value="1" min="1" max="36">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Ex.: renovação de 3 meses = 3. Na visão Competência o valor é dividido entre os meses.</div></div>
     </div>
     <div class="form-actions">
       <button class="btn" onclick="closeOv('dp-modal-venda')">Cancelar</button>
@@ -1287,7 +1313,7 @@ async function fazerLogin(e){
     const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('login-email').value.trim(),password:document.getElementById('login-password').value})});
     const d=await r.json();
     if(!r.ok) throw new Error(d.erro||'Não foi possível entrar');
-    salvarSessao(d); document.getElementById('login-screen').style.display='none'; showPage('dashboard');
+    salvarSessao(d); document.getElementById('login-screen').style.display='none'; showPage('cobrancas');
   }catch(err){ er.textContent=err.message; er.classList.add('show'); }
   finally{ btn.disabled=false; btn.textContent='Entrar'; }
 }
@@ -1295,9 +1321,9 @@ function sair(){ limparSessao(); document.getElementById('login-screen').style.d
 async function iniciarAutenticacao(){
   const token=getAccessToken();
   if(token){
-    try{ const r=await fetch('/api/auth/me',{headers:{Authorization:'Bearer '+token}}); if(r.ok){ const d=await r.json(); salvarSessao(d); document.getElementById('login-screen').style.display='none'; showPage('dashboard'); return; } }catch{}
+    try{ const r=await fetch('/api/auth/me',{headers:{Authorization:'Bearer '+token}}); if(r.ok){ const d=await r.json(); salvarSessao(d); document.getElementById('login-screen').style.display='none'; showPage('cobrancas'); return; } }catch{}
   }
-  if(await renovarSessao()){ document.getElementById('login-screen').style.display='none'; showPage('dashboard'); return; }
+  if(await renovarSessao()){ document.getElementById('login-screen').style.display='none'; showPage('cobrancas'); return; }
   document.getElementById('login-screen').style.display='flex';
 }
 
@@ -1307,7 +1333,8 @@ const ACTIONS={
   dashboard:  ()=>`<button class="btn btn-primary" onclick="gerarMes()"><i class="ti ti-refresh"></i> Gerar cobranças do mês</button>`,
   clientes:   ()=>`<div class="btn-group"><button class="btn btn-amber" onclick="gerarTeste()"><i class="ti ti-test-pipe"></i> Dados de teste</button><button class="btn btn-purple" onclick="abrirImportarIPTV()"><i class="ti ti-table-import"></i> Importar planilha</button><button class="btn btn-primary" onclick="openClienteModal()"><i class="ti ti-plus"></i> Novo cliente</button></div>`,
   cobrancas:  ()=>`<div class="btn-group"><button class="btn btn-purple" onclick="abrirLote()"><i class="ti ti-layer-group"></i> Receber em lote</button><button class="btn btn-primary" onclick="gerarMes()"><i class="ti ti-refresh"></i> Gerar cobranças do mês</button></div>`,
-  inadimplentes:()=>'', financeiro:()=>'', cadastros:()=>'', configuracoes:()=>'',
+  inadimplentes:()=>'', cadastros:()=>'', configuracoes:()=>'',
+  financeiro:()=>`<button class="btn" id="btn-olho-valores" onclick="alternarValores()" title="Mostrar/ocultar valores"><i class="ti ti-eye-off"></i><span> Mostrar valores</span></button>`,
   'outras-vendas':()=>`<div class="btn-group">
     <button class="btn btn-sm" onclick="ovAbrirImportar()"><i class="ti ti-file-upload"></i> Importar dados</button>
     <button class="btn btn-sm btn-danger" onclick="ovLimparTudo()"><i class="ti ti-trash"></i> Limpar tudo</button>
@@ -1320,7 +1347,53 @@ const ACTIONS={
   </div>`,
 };
 
+/* ── OCULTAR VALORES (estilo app de banco) ──
+   Todo texto "R$ ..." dentro de #page-financeiro é envolvido em <span class="money">
+   automaticamente (MutationObserver), então qualquer tabela/card renderizado
+   depois também fica oculto. Sempre começa oculto ao entrar na tela. */
+let _valoresVisiveis=false;
+const RE_MONEY=/-?R\$\s?-?[\d.]+(?:,\d{1,2})?/g;
+function marcarValores(root){
+  if(!root) return;
+  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>{
+    if(!n.nodeValue || !n.nodeValue.includes('R$')) return NodeFilter.FILTER_REJECT;
+    const pai=n.parentElement;
+    if(!pai || pai.closest('.money,script,style,input,textarea,select,option')) return NodeFilter.FILTER_REJECT;
+    return NodeFilter.FILTER_ACCEPT;
+  }});
+  const nos=[]; while(walker.nextNode()) nos.push(walker.currentNode);
+  for(const n of nos){
+    const txt=n.nodeValue; RE_MONEY.lastIndex=0;
+    if(!RE_MONEY.test(txt)) continue; RE_MONEY.lastIndex=0;
+    const frag=document.createDocumentFragment(); let ult=0, m;
+    while((m=RE_MONEY.exec(txt))){
+      if(m.index>ult) frag.appendChild(document.createTextNode(txt.slice(ult,m.index)));
+      const sp=document.createElement('span'); sp.className='money'; sp.textContent=m[0]; frag.appendChild(sp);
+      ult=m.index+m[0].length;
+    }
+    if(ult<txt.length) frag.appendChild(document.createTextNode(txt.slice(ult)));
+    n.parentNode.replaceChild(frag,n);
+  }
+}
+function aplicarEstadoValores(){
+  const pg=document.getElementById('page-financeiro');
+  if(pg) pg.classList.toggle('valores-ocultos',!_valoresVisiveis);
+  const b=document.getElementById('btn-olho-valores');
+  if(b) b.innerHTML=_valoresVisiveis
+    ? '<i class="ti ti-eye"></i><span> Ocultar valores</span>'
+    : '<i class="ti ti-eye-off"></i><span> Mostrar valores</span>';
+}
+function alternarValores(){ _valoresVisiveis=!_valoresVisiveis; aplicarEstadoValores(); }
+(function iniciarOcultarValores(){
+  const pg=document.getElementById('page-financeiro');
+  if(!pg) return;
+  marcarValores(pg);
+  new MutationObserver(()=>marcarValores(pg)).observe(pg,{childList:true,subtree:true,characterData:true});
+  aplicarEstadoValores();
+})();
+
 function showPage(name){
+  if(name==='financeiro') _valoresVisiveis=false;
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
@@ -1330,6 +1403,7 @@ function showPage(name){
   document.getElementById('topbar-actions').innerHTML=ACTIONS[name]?ACTIONS[name]():'';
   currentPage=name;
   const fn={dashboard:renderDash,clientes:renderClientes,cobrancas:renderCobs,inadimplentes:renderInad,financeiro:renderFinanceiro,'outras-vendas':renderOutrasVendas,despesas:renderDespesas,cadastros:renderCadastros,configuracoes:carregarConfigs};
+  if(name==='financeiro') aplicarEstadoValores();
   if(fn[name])fn[name]();
 }
 
@@ -1512,6 +1586,7 @@ async function renderCobs(vencerEmDias){
               ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor||''}','${cb.vencimento}','${cb.mes_ref}',${cb.valor})"><i class="ti ti-check"></i><span> Pago</span></button>`:''}
               ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')"><i class="ti ti-brand-whatsapp"></i></button>`:''}
               ${cb.status!=='cancelado'&&cb.status!=='pago'?`<button class="btn btn-sm btn-danger" onclick="cancelCob('${cb.id}')"><i class="ti ti-x"></i></button>`:''}
+              <button class="btn btn-sm" style="color:var(--accent);border-color:var(--accent);margin-left:auto" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Histórico do cliente"><i class="ti ti-clock"></i></button>
             </div></td>
           </tr>`;
         }).join('')}</tbody></table>`;
@@ -1574,6 +1649,32 @@ function finAnoAtualAte(){ return `${new Date().getFullYear()}-12`; }
 
 let _finCache = null;
 
+let finVisao='caixa';
+function finSetVisao(v){
+  finVisao=v;
+  document.getElementById('fv-caixa')?.classList.toggle('active',v==='caixa');
+  document.getElementById('fv-comp')?.classList.toggle('active',v==='competencia');
+  renderFinanceiro();
+}
+// Campos conforme a visão escolhida
+function finV(m){
+  const c=finVisao==='competencia';
+  return {
+    mensal: c?m.competencia:m.recebido,
+    despesas: c?(m.despesas_comp||0):(m.despesas||0),
+    receita: c?(m.receita_total_comp||0):(m.receita_total||0),
+    lucro: c?(m.lucro_comp||0):(m.lucro_liquido||0),
+    clientes: c?(m.clientes_comp||0):(m.clientes_ativos||0),
+    servidores: c?(m.por_servidor_comp||{}):(m.por_servidor||{})
+  };
+}
+async function finBuscar(de,ate){
+  let url='/api/financeiro?';
+  if(de)  url+=`de=${de}&`;
+  if(ate) url+=`ate=${ate}&`;
+  return api('GET',url);
+}
+
 async function renderFinanceiro(){
   const elDe  = document.getElementById('fin-de');
   const elAte = document.getElementById('fin-ate');
@@ -1581,7 +1682,6 @@ async function renderFinanceiro(){
   if(!elDe.value)  elDe.value  = finMesAtual();
   if(!elAte.value) elAte.value = finMesAtual();
 
-  // Preencher defaults dos outros filtros se ainda vazios
   const setDefault = (id, val) => { const e=document.getElementById(id); if(e&&!e.value) e.value=val; };
   setDefault('rg-de',  finAnoAtualDe());
   setDefault('rg-ate', finAnoAtualAte());
@@ -1590,13 +1690,22 @@ async function renderFinanceiro(){
   setDefault('cli-de', finAnoAtualDe());
   setDefault('cli-ate',finAnoAtualAte());
 
+  const ajuda=document.getElementById('fin-visao-ajuda');
+  if(ajuda) ajuda.innerHTML = finVisao==='caixa'
+    ? '<b>Caixa:</b> valores pela data em que o dinheiro entrou. Pagamentos antecipados contam no mês em que foram pagos.'
+    : '<b>Competência:</b> valores pelo mês a que a mensalidade se refere. 6 meses pagos de uma vez aparecem divididos nos 6 meses.';
+
   try{
-    const {totais} = await api('GET', `/api/financeiro?de=${elDe.value}&ate=${elAte.value}&`);
+    const {totais, receitaAntecipada} = await finBuscar(elDe.value, elAte.value);
+    const caixa=finVisao==='caixa';
     document.getElementById('fin-totais').innerHTML=`
-      <div class="fin-metric"><div class="fin-metric-label">Mensalidades recebidas</div><div class="fin-metric-val cv-green">${fmtV(totais.recebido)}</div></div>
+      <div class="fin-metric" style="${caixa?'border-color:var(--accent)':''}"><div class="fin-metric-label">Recebido no caixa</div><div class="fin-metric-val cv-green">${fmtV(totais.recebido)}</div><div class="fin-metric-sub">${totais.qtd_recebimentos} mensalidade(s) pagas no período</div></div>
+      <div class="fin-metric" style="${!caixa?'border-color:var(--accent)':''}"><div class="fin-metric-label">Receita do período (competência)</div><div class="fin-metric-val cv-blue">${fmtV(totais.competencia)}</div><div class="fin-metric-sub">${totais.qtd_competencia} mês(es) de cliente pagos</div></div>
+      <div class="fin-metric"><div class="fin-metric-label">Antecipado recebido</div><div class="fin-metric-val cv-purple" style="color:var(--purple,#a78bfa)">${fmtV(totais.antecipado)}</div><div class="fin-metric-sub">pago no período para meses seguintes</div></div>
       <div class="fin-metric"><div class="fin-metric-label">Em aberto</div><div class="fin-metric-val cv-amber">${fmtV(totais.em_aberto)}</div></div>
       <div class="fin-metric"><div class="fin-metric-label">Em atraso</div><div class="fin-metric-val cv-red">${fmtV(totais.atrasado)}</div></div>
       <div class="fin-metric"><div class="fin-metric-label">Total faturado</div><div class="fin-metric-val">${fmtV(totais.total)}</div></div>`;
+    renderAntecipada(receitaAntecipada);
   }catch(e){ toast('Erro ao carregar financeiro','err'); return; }
 
   await _finPopularSelectMeses();
@@ -1604,6 +1713,23 @@ async function renderFinanceiro(){
   await renderHistoricoMensal();
   await renderDistServidor();
   await renderClientesAtivos();
+}
+
+function renderAntecipada(ra){
+  const el=document.getElementById('fin-antecipada');
+  if(!el) return;
+  if(!ra || !ra.qtd){ el.innerHTML='<div style="color:var(--muted);font-size:13px">Nenhum pagamento antecipado para os próximos meses.</div>'; return; }
+  const max=Math.max(...ra.meses.map(m=>m.valor),1);
+  el.innerHTML=`
+    <div class="fin-grid" style="margin-bottom:1rem">
+      <div class="fin-metric"><div class="fin-metric-label">Saldo antecipado hoje</div><div class="fin-metric-val" style="color:var(--purple,#a78bfa)">${fmtV(ra.total)}</div><div class="fin-metric-sub">dinheiro que já entrou, mas pertence aos próximos meses</div></div>
+      <div class="fin-metric"><div class="fin-metric-label">Meses pagos adiantados</div><div class="fin-metric-val">${ra.qtd}</div><div class="fin-metric-sub">de ${ra.clientes} cliente(s)</div></div>
+    </div>
+    ${ra.meses.map(m=>`
+      <div class="dist-bar-wrap">
+        <div class="dist-bar-label"><span>${fmtMesRef(m.mes_ref)}</span><span>${m.clientes} cliente(s) · ${fmtV(m.valor)} já garantido</span></div>
+        <div class="dist-bar"><div class="dist-bar-fill" style="width:${Math.round(m.valor/max*100)}%;background:var(--purple,#a78bfa)"></div></div>
+      </div>`).join('')}`;
 }
 
 async function _finPopularSelectMeses(){
@@ -1621,18 +1747,16 @@ async function renderResumoGeral(){
   const de  = (document.getElementById('rg-de') ||{value:''}).value;
   const ate = (document.getElementById('rg-ate')||{value:''}).value;
   try{
-    let url='/api/financeiro?';
-    if(de)  url+=`de=${de}&`;
-    if(ate) url+=`ate=${ate}&`;
-    const {totais} = await api('GET',url);
+    const {totais} = await finBuscar(de,ate);
+    const v=finV(totais);
     const el = document.getElementById('fin-resumo-geral');
     if(!el) return;
     el.innerHTML=`
-      <div class="fin-metric"><div class="fin-metric-label">Mensalidades</div><div class="fin-metric-val cv-green">${fmtV(totais.recebido)}</div></div>
+      <div class="fin-metric"><div class="fin-metric-label">Mensalidades ${finVisao==='caixa'?'(caixa)':'(competência)'}</div><div class="fin-metric-val cv-green">${fmtV(v.mensal)}</div></div>
       <div class="fin-metric"><div class="fin-metric-label">Outras receitas</div><div class="fin-metric-val cv-green">${fmtV(totais.outras_receitas)}</div></div>
-      <div class="fin-metric"><div class="fin-metric-label">Receita total</div><div class="fin-metric-val cv-blue">${fmtV(totais.receita_total)}</div></div>
-      <div class="fin-metric"><div class="fin-metric-label">Despesas</div><div class="fin-metric-val cv-red">${fmtV(totais.despesas)}</div></div>
-      <div class="fin-metric"><div class="fin-metric-label">Lucro líquido</div><div class="fin-metric-val" style="color:${totais.lucro_liquido>=0?'var(--green)':'var(--red)'}">${fmtV(totais.lucro_liquido)}</div></div>`;
+      <div class="fin-metric"><div class="fin-metric-label">Receita total</div><div class="fin-metric-val cv-blue">${fmtV(v.receita)}</div></div>
+      <div class="fin-metric"><div class="fin-metric-label">Despesas${finVisao==='competencia'?' (rateadas)':''}</div><div class="fin-metric-val cv-red">${fmtV(v.despesas)}</div></div>
+      <div class="fin-metric"><div class="fin-metric-label">Lucro líquido</div><div class="fin-metric-val" style="color:${v.lucro>=0?'var(--green)':'var(--red)'}">${fmtV(v.lucro)}</div></div>`;
   }catch(e){toast('Erro resumo geral','err');}
 }
 
@@ -1643,28 +1767,28 @@ async function renderHistoricoMensal(){
   if(!el) return;
   el.innerHTML='<div class="loading">Carregando...</div>';
   try{
-    let url='/api/financeiro?';
-    if(de)  url+=`de=${de}&`;
-    if(ate) url+=`ate=${ate}&`;
-    const {meses} = await api('GET',url);
+    const {meses} = await finBuscar(de,ate);
     if(!meses.length){ el.innerHTML='<div class="empty"><i class="ti ti-report-money"></i><p>Nenhum dado para o período.</p></div>'; return; }
+    const caixa=finVisao==='caixa';
     el.innerHTML=`<table><thead><tr>
-      <th style="width:12%">Mês</th><th style="width:12%">Mensalid.</th>
-      <th style="width:11%">Outras Rec.</th><th style="width:10%">Em aberto</th>
-      <th style="width:10%">Em atraso</th><th style="width:11%">Despesas</th>
-      <th style="width:12%">Lucro líq.</th><th style="width:8%">Clientes</th><th style="width:9%">Taxa</th>
+      <th>Mês</th><th>${caixa?'Recebido':'Competência'}</th>
+      ${caixa?'<th title="Pago neste mês para meses seguintes">Antecipado</th>':'<th title="Recebido no caixa neste mês">Caixa</th>'}
+      <th>Outras Rec.</th><th>Em aberto</th><th>Em atraso</th><th>Despesas</th>
+      <th>Lucro líq.</th><th>Clientes</th><th>Taxa</th>
     </tr></thead><tbody>${[...meses].reverse().map(m=>{
-      const tx=m.total>0?Math.round(m.recebido/m.total*100):0;
+      const v=finV(m);
+      const tx=m.total>0?Math.round(m.competencia/m.total*100):0;
       return`<tr>
         <td style="font-weight:600">${fmtMesRef(m.mes_ref)}</td>
-        <td style="color:var(--green);font-weight:600">${fmtV(m.recebido)}</td>
+        <td style="color:var(--green);font-weight:600">${fmtV(v.mensal)}</td>
+        <td style="color:${caixa?'var(--purple,#a78bfa)':'var(--muted)'}">${fmtV(caixa?m.antecipado:m.recebido)}</td>
         <td style="color:var(--green)">${fmtV(m.outras_receitas||0)}</td>
         <td style="color:var(--amber)">${fmtV(m.em_aberto)}</td>
         <td style="color:var(--red)">${fmtV(m.atrasado)}</td>
-        <td style="color:var(--red)">${fmtV(m.despesas||0)}</td>
-        <td style="font-weight:700;color:${(m.lucro_liquido||0)>=0?'var(--green)':'var(--red)'}">${fmtV(m.lucro_liquido||0)}</td>
-        <td style="text-align:center">${m.clientes_ativos}</td>
-        <td><span style="color:${tx>=80?'var(--green)':tx>=50?'var(--amber)':'var(--red)'};font-weight:600">${tx}%</span></td>
+        <td style="color:var(--red)">${fmtV(v.despesas)}</td>
+        <td style="font-weight:700;color:${v.lucro>=0?'var(--green)':'var(--red)'}">${fmtV(v.lucro)}</td>
+        <td style="text-align:center">${v.clientes}</td>
+        <td title="Quanto do faturado do mês já foi pago"><span style="color:${tx>=80?'var(--green)':tx>=50?'var(--amber)':'var(--red)'};font-weight:600">${tx}%</span></td>
       </tr>`;
     }).join('')}</tbody></table>`;
   }catch(e){el.innerHTML='<div class="empty"><i class="ti ti-alert-circle"></i><p>Erro ao carregar.</p></div>';}
@@ -1675,27 +1799,36 @@ async function renderDistServidor(){
   const el = document.getElementById('fin-dist');
   if(!el) return;
   try{
-    let url='/api/financeiro?';
-    if(mesFiltro){ url+=`de=${mesFiltro}&ate=${mesFiltro}&`; }
-    const {meses} = await api('GET',url);
-    const distAcum={};
+    const {meses} = mesFiltro ? await finBuscar(mesFiltro,mesFiltro) : await finBuscar();
+    const acc={};
     meses.forEach(m=>{
-      Object.entries(m.por_servidor||{}).forEach(([s,v])=>{
-        if(!distAcum[s])distAcum[s]={qtd:0,valor:0};
-        distAcum[s].qtd+=v.qtd; distAcum[s].valor+=v.valor;
+      Object.entries(finV(m).servidores).forEach(([s,v])=>{
+        if(!acc[s])acc[s]={qtd:0,valor:0,custo:0};
+        acc[s].qtd+=v.qtd||0; acc[s].valor+=v.valor||0; acc[s].custo+=v.custo||0;
       });
     });
-    const distArr=Object.entries(distAcum).sort((a,b)=>b[1].qtd-a[1].qtd);
-    if(!distArr.length){ el.innerHTML='<div style="color:var(--muted);font-size:13px">Sem dados</div>'; return; }
-    const maxQtd=distArr[0][1].qtd||1;
-    const titulo=mesFiltro?fmtMesRef(mesFiltro):'Total no período';
-    el.innerHTML=`<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">${titulo}</div>`+
-      distArr.map(([s,v])=>`
-        <div class="dist-bar-wrap">
-          <div class="dist-bar-label"><span>${s}</span><span>${v.qtd} receb. · ${fmtV(v.valor)}</span></div>
-          <div class="dist-bar"><div class="dist-bar-fill" style="width:${Math.round(v.qtd/maxQtd*100)}%"></div></div>
-        </div>`).join('');
-  }catch(e){el.innerHTML='<div style="color:var(--muted);font-size:13px">Erro ao carregar.</div>';}
+    const arr=Object.entries(acc).sort((a,b)=>b[1].valor-a[1].valor);
+    if(!arr.length){ el.innerHTML='<div style="color:var(--muted);font-size:13px;padding:1rem">Sem dados</div>'; return; }
+    const tot=arr.reduce((t,[,v])=>({qtd:t.qtd+v.qtd,valor:t.valor+v.valor,custo:t.custo+v.custo}),{qtd:0,valor:0,custo:0});
+    const linha=(nome,v,bold)=>{
+      const margem=v.valor-v.custo, pct=v.valor>0?Math.round(margem/v.valor*100):0;
+      return `<tr style="${bold?'font-weight:700;border-top:2px solid var(--border)':''}">
+        <td style="font-weight:600">${nome}</td>
+        <td style="text-align:center">${v.qtd}</td>
+        <td style="color:var(--green)">${fmtV(v.valor)}</td>
+        <td style="color:var(--red)">${v.custo?fmtV(v.custo):'<span style="color:var(--muted)">sem custo lançado</span>'}</td>
+        <td style="font-weight:700;color:${margem>=0?'var(--green)':'var(--red)'}">${fmtV(margem)}</td>
+        <td><span style="color:${pct>=60?'var(--green)':pct>=30?'var(--amber)':'var(--red)'};font-weight:600">${v.custo?pct+'%':'—'}</span></td>
+        <td style="color:var(--muted)">${v.qtd&&v.custo?fmtV(v.custo/v.qtd):'—'}</td>
+      </tr>`;
+    };
+    el.innerHTML=`<table><thead><tr>
+        <th>Servidor</th><th style="text-align:center" title="Mensalidades pagas">Mensal.</th><th>Receita</th><th>Custo</th><th>Margem</th><th>%</th><th title="Custo dividido pelas mensalidades pagas">Custo / mensal.</th>
+      </tr></thead><tbody>
+      ${arr.map(([s,v])=>linha(s,v,false)).join('')}
+      ${arr.length>1?linha('Total',tot,true):''}
+    </tbody></table>`;
+  }catch(e){el.innerHTML='<div style="color:var(--muted);font-size:13px;padding:1rem">Erro ao carregar.</div>';}
 }
 
 async function renderClientesAtivos(){
@@ -1704,18 +1837,16 @@ async function renderClientesAtivos(){
   const el  = document.getElementById('fin-clientes');
   if(!el) return;
   try{
-    let url='/api/financeiro?';
-    if(de)  url+=`de=${de}&`;
-    if(ate) url+=`ate=${ate}&`;
-    const {meses} = await api('GET',url);
+    const {meses} = await finBuscar(de,ate);
     const mesesAsc=[...meses].reverse();
-    const maxCli=Math.max(...mesesAsc.map(m=>m.clientes_ativos),1);
+    const qtd=m=>finV(m).clientes;
+    const maxCli=Math.max(...mesesAsc.map(qtd),1);
     el.innerHTML=mesesAsc.length===0
       ?'<div style="color:var(--muted);font-size:13px">Sem dados</div>'
-      :mesesAsc.map(m=>`
+      :`<div style="font-size:11px;color:var(--muted);margin-bottom:8px">${finVisao==='caixa'?'Clientes que pagaram no mês':'Clientes com o mês pago'}</div>`+mesesAsc.map(m=>`
         <div class="dist-bar-wrap">
-          <div class="dist-bar-label"><span>${fmtMesRef(m.mes_ref)}</span><span>${m.clientes_ativos} cliente${m.clientes_ativos!==1?'s':''}</span></div>
-          <div class="dist-bar"><div class="dist-bar-fill" style="width:${Math.round(m.clientes_ativos/maxCli*100)}%"></div></div>
+          <div class="dist-bar-label"><span>${fmtMesRef(m.mes_ref)}</span><span>${qtd(m)} cliente${qtd(m)!==1?'s':''}</span></div>
+          <div class="dist-bar"><div class="dist-bar-fill" style="width:${Math.round(qtd(m)/maxCli*100)}%"></div></div>
         </div>`).join('');
   }catch(e){el.innerHTML='<div style="color:var(--muted);font-size:13px">Erro ao carregar.</div>';}
 }
@@ -2776,7 +2907,7 @@ async function renderDespesas() {
         <td>${fmtD(r.data)}</td>
         <td><span class="tipo-badge">${r.tipo}</span></td>
         <td style="font-weight:500">${r.responsavel||'—'}</td>
-        <td style="color:var(--muted)">${r.descricao||'—'}</td>
+        <td style="color:var(--muted)">${r.descricao||'—'}${(r.meses_cobertos||1)>1?` <span class="tipo-badge" title="Valor dividido entre os meses na visão Competência">${r.meses_cobertos} meses</span>`:''}</td>
         <td style="text-align:right">${fmtV(r.valor_un)}</td>
         <td style="text-align:center;color:var(--muted)">${r.qtde}</td>
         <td style="text-align:right;font-weight:600;color:var(--red)">${fmtV(r.total)}</td>
@@ -2862,6 +2993,14 @@ async function dpCarregarSelectTipos(selecionado){
   }
 }
 
+async function dpCarregarServidores(){
+  try{
+    const serv=await api('GET','/api/servidores');
+    const dl=document.getElementById('dp-lista-servidores');
+    if(dl) dl.innerHTML=serv.map(s=>`<option value="${esc(s.nome)}">`).join('');
+  }catch{}
+}
+
 async function dpAbrirNovo(){
   dpEditId=null;
   document.getElementById('dp-modal-title').textContent='Nova despesa';
@@ -2871,8 +3010,9 @@ async function dpAbrirNovo(){
   document.getElementById('dp-valor-un').value='';
   document.getElementById('dp-qtde').value='1';
   document.getElementById('dp-total').value='';
+  document.getElementById('dp-meses').value='1';
   document.getElementById('dp-edit-id').value='';
-  await dpCarregarSelectTipos('');
+  await Promise.all([dpCarregarSelectTipos(''), dpCarregarServidores()]);
   openOv('dp-modal-venda');
 }
 
@@ -2888,8 +3028,9 @@ async function dpEditar(id){
     document.getElementById('dp-valor-un').value     = r.valor_un;
     document.getElementById('dp-qtde').value         = r.qtde;
     document.getElementById('dp-total').value        = r.total;
+    document.getElementById('dp-meses').value        = r.meses_cobertos||1;
     document.getElementById('dp-edit-id').value      = id;
-    await dpCarregarSelectTipos(r.tipo);
+    await Promise.all([dpCarregarSelectTipos(r.tipo), dpCarregarServidores()]);
     openOv('dp-modal-venda');
   } catch(e){ toast('Erro ao carregar registro','err'); console.error(e); }
 }
@@ -2909,7 +3050,8 @@ async function dpSalvar(){
     data:g('dp-data'), tipo:g('dp-tipo-rec'), responsavel:g('dp-responsavel'),
     descricao:g('dp-descricao'), valor_un:parseFloat(g('dp-valor-un')),
     qtde:parseInt(document.getElementById('dp-qtde').value)||1,
-    total:parseFloat(document.getElementById('dp-total').value)||parseFloat(g('dp-valor-un'))
+    total:parseFloat(document.getElementById('dp-total').value)||parseFloat(g('dp-valor-un')),
+    meses_cobertos:parseInt(document.getElementById('dp-meses').value)||1
   };
   try{
     if(dpEditId) await api('PUT',`/api/despesas/${dpEditId}`,body);

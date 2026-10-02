@@ -65,6 +65,22 @@ async function selectAll(table, columns='*', configure=null, pageSize=1000) {
   return {data:all,error:null};
 }
 
+// Grava despesas com "meses_cobertos". Se a coluna ainda não existir no
+// Supabase (migração não rodada), grava sem ela para não quebrar nada.
+async function gravarDespesa(op, row, id){
+  const exec = r => op==='insert'
+    ? sb.from('despesas').insert(r).select().single()
+    : sb.from('despesas').update(r).eq('id',id).select().single();
+  let { data, error } = await exec(row);
+  if (error && /meses_cobertos/.test(error.message||'')) {
+    const { meses_cobertos, ...semColuna } = row;
+    ({ data, error } = await exec(semColuna));
+  }
+  return { data, error };
+}
+function mesesCobertos(v){ const n=parseInt(v,10); return Number.isInteger(n)&&n>=1&&n<=36 ? n : 1; }
+function somarMeses(mr, n){ const [a,m]=mr.split('-').map(Number); const d=new Date(a, m-1+n, 1); return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
+
 // ── Router manual (sem express, roda como serverless) ────────────
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -416,54 +432,116 @@ export default async function handler(req, res) {
     const { data:movs, error:eMovs } = await selectAll('movimentos_financeiros','*');
     const { data:todasOv } = await selectAll('outras_vendas','*');
     const { data:todasDp } = await selectAll('despesas','*');
+    const { data:srvRows } = await sb.from('servidores').select('nome');
     if (eMovs) return err(res, `Erro ao carregar financeiro: ${eMovs.message}`, 500);
 
-    const movimentos=movs||[], ovs0=todasOv||[], dps0=todasDp||[];
+    const movimentos=(movs||[]).filter(m=>m.status!=='cancelado'), ovs0=todasOv||[], dps0=todasDp||[];
+    const mesHoje=new Date().toISOString().slice(0,7);
+    const mesPag=m=>m.pago_em ? String(m.pago_em).slice(0,7) : null;
+    const pagos=movimentos.filter(m=>m.status==='pago' && m.valor_pago!=null);
+
+    // Servidor de uma despesa = campo "Responsável / Servidor" que bata com
+    // um servidor cadastrado (ou usado nas mensalidades).
+    const nomesSrv=new Map();
+    [...(srvRows||[]).map(r=>r.nome), ...movimentos.map(m=>m.servidor)].filter(Boolean)
+      .forEach(n=>nomesSrv.set(String(n).trim().toLowerCase(), n));
+    const servidorDaDespesa=d=>{
+      const r=normalizarServidor(String(d.responsavel||'').trim());
+      return r ? (nomesSrv.get(r.toLowerCase())||null) : null;
+    };
+
+    // Rateio por competência: uma despesa que cobre N meses vira N parcelas
+    // iguais a partir do mês da despesa (ex.: renovação de 3 meses do servidor).
+    const dpsComp=[];
+    for(const d of dps0){
+      if(!d.mes_ref) continue;
+      const n=mesesCobertos(d.meses_cobertos), tot=parseFloat(d.total||0);
+      for(let i=0;i<n;i++) dpsComp.push({ mes_ref:somarMeses(d.mes_ref,i), valor:tot/n, servidor:servidorDaDespesa(d) });
+    }
+
     const mesesSet = new Set();
-    movimentos.forEach(m=>{ if(m.mes_ref) mesesSet.add(m.mes_ref); });
-    movimentos.forEach(m=>{ if(m.pago_em) mesesSet.add(String(m.pago_em).slice(0,7)); });
+    movimentos.forEach(m=>{ if(m.mes_ref) mesesSet.add(m.mes_ref); const mp=mesPag(m); if(mp) mesesSet.add(mp); });
     ovs0.forEach(r=>r.mes_ref && mesesSet.add(r.mes_ref));
     dps0.forEach(r=>r.mes_ref && mesesSet.add(r.mes_ref));
+    // Meses futuros só entram se houver receita/despesa por competência neles.
+    dpsComp.forEach(r=>{ if(r.mes_ref<=mesHoje) mesesSet.add(r.mes_ref); });
+
+    const addSrv=(obj,srv,campo,v)=>{ srv=srv||'Sem servidor'; if(!obj[srv]) obj[srv]={qtd:0,valor:0,custo:0}; if(campo==='valor'){obj[srv].qtd++;obj[srv].valor+=v;} else obj[srv].custo+=v; };
 
     const resultado=[];
     for(const mr of [...mesesSet].sort()){
       if(de && mr<de) continue;
       if(ate && mr>ate) continue;
       const cobsMes=movimentos.filter(m=>m.mes_ref===mr);
-      const recebMes=movimentos.filter(m=>m.status==='pago' && m.valor_pago!=null && m.pago_em && String(m.pago_em).slice(0,7)===mr);
-      const recebSemData=movimentos.filter(m=>m.status==='pago' && m.valor_pago!=null && !m.pago_em && m.mes_ref===mr);
-      const em_aberto=cobsMes.filter(c=>c.status==='pendente').reduce((s,c)=>s+parseFloat(c.valor||0),0);
-      const atrasado=cobsMes.filter(c=>c.status==='vencido').reduce((s,c)=>s+parseFloat(c.valor||0),0);
-      const totalCobrancas=cobsMes.reduce((s,c)=>s+parseFloat(c.valor||0),0);
-      const recebidoMensalidade=recebMes.reduce((s,r)=>s+parseFloat(r.valor_pago||0),0);
-      const porServidor={};
-      recebMes.forEach(r=>{
-        const srv=r.servidor||'Sem servidor';
-        if(!porServidor[srv])porServidor[srv]={qtd:0,valor:0};
-        porServidor[srv].qtd++;
-        porServidor[srv].valor+=parseFloat(r.valor_pago||0);
-      });
+      const recebMes=pagos.filter(m=>mesPag(m)===mr);                 // CAIXA
+      const recebSemData=pagos.filter(m=>!m.pago_em && m.mes_ref===mr);
+      const compMes=pagos.filter(m=>m.mes_ref===mr);                  // COMPETÊNCIA
+      const antecipMes=recebMes.filter(m=>m.mes_ref && m.mes_ref>mr);  // pago neste mês p/ meses futuros
+      const atrasoMes=recebMes.filter(m=>m.mes_ref && m.mes_ref<mr);   // pago neste mês p/ meses passados
+
+      const soma=(arr,f='valor_pago')=>arr.reduce((s,r)=>s+parseFloat(r[f]||0),0);
+      const em_aberto=soma(cobsMes.filter(c=>c.status==='pendente'),'valor');
+      const atrasado=soma(cobsMes.filter(c=>c.status==='vencido'),'valor');
+      const totalCobrancas=soma(cobsMes,'valor');
+      const recebidoMensalidade=soma(recebMes);
+      const competencia=soma(compMes);
+
+      const porServidor={}, porServidorComp={};
+      recebMes.forEach(r=>addSrv(porServidor,r.servidor,'valor',parseFloat(r.valor_pago||0)));
+      compMes.forEach(r=>addSrv(porServidorComp,r.servidor,'valor',parseFloat(r.valor_pago||0)));
+
       const ovs=ovs0.filter(r=>r.mes_ref===mr);
-      const outrasReceitas=ovs.reduce((s,r)=>s+parseFloat(r.total||0),0);
+      const outrasReceitas=soma(ovs,'total');
       const dps=dps0.filter(r=>r.mes_ref===mr);
-      const totalDespesas=dps.reduce((s,r)=>s+parseFloat(r.total||0),0);
+      const totalDespesas=soma(dps,'total');
+      dps.forEach(d=>{ const srv=servidorDaDespesa(d); if(srv) addSrv(porServidor,srv,'custo',parseFloat(d.total||0)); });
+      const dpc=dpsComp.filter(r=>r.mes_ref===mr);
+      const despesasComp=dpc.reduce((s,r)=>s+r.valor,0);
+      dpc.forEach(d=>{ if(d.servidor) addSrv(porServidorComp,d.servidor,'custo',d.valor); });
+
       const receitaTotal=recebidoMensalidade+outrasReceitas;
-      const lucroLiquido=receitaTotal-totalDespesas;
-      const clientesReceberam=[...new Set(recebMes.map(r=>r.cliente_id))].length;
+      const receitaTotalComp=competencia+outrasReceitas;
       resultado.push({
-        mes_ref:mr, recebido:recebidoMensalidade, em_aberto, atrasado, total:totalCobrancas,
-        outras_receitas:outrasReceitas, despesas:totalDespesas, receita_total:receitaTotal,
-        lucro_liquido:lucroLiquido, clientes_ativos:clientesReceberam, por_servidor:porServidor,
+        mes_ref:mr,
+        // caixa
+        recebido:recebidoMensalidade, antecipado:soma(antecipMes), qtd_antecipado:antecipMes.length,
+        recebido_atrasado:soma(atrasoMes),
+        despesas:totalDespesas, receita_total:receitaTotal, lucro_liquido:receitaTotal-totalDespesas,
+        por_servidor:porServidor,
+        // competência
+        competencia, qtd_competencia:compMes.length,
+        despesas_comp:despesasComp, receita_total_comp:receitaTotalComp, lucro_comp:receitaTotalComp-despesasComp,
+        por_servidor_comp:porServidorComp,
+        // comuns
+        em_aberto, atrasado, total:totalCobrancas, outras_receitas:outrasReceitas,
+        clientes_ativos:new Set(recebMes.map(r=>r.cliente_id)).size,
+        clientes_comp:new Set(compMes.map(r=>r.cliente_id)).size,
         qtd_recebimentos:recebMes.length, qtd_recebimentos_sem_data:recebSemData.length
       });
     }
-    const totais=resultado.reduce((acc,r)=>({
-      recebido:acc.recebido+r.recebido, em_aberto:acc.em_aberto+r.em_aberto, atrasado:acc.atrasado+r.atrasado,
-      total:acc.total+r.total, outras_receitas:acc.outras_receitas+r.outras_receitas, despesas:acc.despesas+r.despesas,
-      receita_total:acc.receita_total+r.receita_total, lucro_liquido:acc.lucro_liquido+r.lucro_liquido,
-      clientes_ativos:Math.max(acc.clientes_ativos,r.clientes_ativos), qtd_recebimentos:acc.qtd_recebimentos+r.qtd_recebimentos
-    }),{recebido:0,em_aberto:0,atrasado:0,total:0,outras_receitas:0,despesas:0,receita_total:0,lucro_liquido:0,clientes_ativos:0,qtd_recebimentos:0});
-    return res.json({meses:resultado.reverse(),totais});
+    const campos=['recebido','antecipado','qtd_antecipado','recebido_atrasado','despesas','receita_total','lucro_liquido',
+      'competencia','qtd_competencia','despesas_comp','receita_total_comp','lucro_comp','em_aberto','atrasado','total','outras_receitas','qtd_recebimentos'];
+    const totais=Object.fromEntries(campos.map(c=>[c,resultado.reduce((s,r)=>s+(r[c]||0),0)]));
+    totais.clientes_ativos=Math.max(0,...resultado.map(r=>r.clientes_ativos));
+    totais.clientes_comp=Math.max(0,...resultado.map(r=>r.clientes_comp));
+
+    // Receita antecipada HOJE: dinheiro já recebido que pertence a meses
+    // futuros (mes_ref depois do mês atual). Não depende do filtro de período.
+    const futuros={};
+    pagos.filter(m=>m.mes_ref && m.mes_ref>mesHoje).forEach(m=>{
+      if(!futuros[m.mes_ref]) futuros[m.mes_ref]={mes_ref:m.mes_ref,qtd:0,valor:0,clientes:new Set()};
+      futuros[m.mes_ref].qtd++; futuros[m.mes_ref].valor+=parseFloat(m.valor_pago||0); futuros[m.mes_ref].clientes.add(m.cliente_id);
+    });
+    const antecipadoMeses=Object.values(futuros).sort((a,b)=>a.mes_ref.localeCompare(b.mes_ref))
+      .map(f=>({mes_ref:f.mes_ref,qtd:f.qtd,valor:Number(f.valor.toFixed(2)),clientes:f.clientes.size}));
+    const receitaAntecipada={
+      total:Number(antecipadoMeses.reduce((s,f)=>s+f.valor,0).toFixed(2)),
+      qtd:antecipadoMeses.reduce((s,f)=>s+f.qtd,0),
+      clientes:new Set(pagos.filter(m=>m.mes_ref && m.mes_ref>mesHoje).map(m=>m.cliente_id)).size,
+      meses:antecipadoMeses
+    };
+
+    return res.json({meses:resultado.reverse(),totais,receitaAntecipada,mesAtual:mesHoje});
   }
 
   // ─── CONFIGURAÇÕES ────────────────────────────────────────────
@@ -604,9 +682,10 @@ export default async function handler(req, res) {
       return res.json(data);
     }
     if (req.method === 'POST') {
-      let { data:dt, tipo, responsavel, descricao, valor_un, qtde, total } = body;
+      let { data:dt, tipo, responsavel, descricao, valor_un, qtde, total, meses_cobertos } = body;
       if (dt?.includes('/')) { const [d,m,a]=dt.split('/'); dt=`${a}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`; }
-      const { data } = await sb.from('despesas').insert({ id:uid(), data:dt, tipo:tipo.trim(), responsavel:(responsavel||'').trim(), descricao:(descricao||'').trim(), valor_un:parseFloat(valor_un), qtde:parseInt(qtde)||1, total:parseFloat(total), mes_ref:dt.slice(0,7), criado:new Date().toISOString() }).select().single();
+      const { data, error } = await gravarDespesa('insert', { id:uid(), data:dt, tipo:tipo.trim(), responsavel:normalizarServidor((responsavel||'').trim())||'', descricao:(descricao||'').trim(), valor_un:parseFloat(valor_un), qtde:parseInt(qtde)||1, total:parseFloat(total), mes_ref:dt.slice(0,7), meses_cobertos:mesesCobertos(meses_cobertos), criado:new Date().toISOString() });
+      if (error) return err(res, `Erro ao salvar despesa: ${error.message}`, 500);
       return res.json(data);
     }
   }
@@ -645,7 +724,7 @@ export default async function handler(req, res) {
   if (url.match(/^\/despesas\/[^/]+$/)) {
     const id=url.split('/')[2];
     if (req.method==='GET') { const { data }=await sb.from('despesas').select('*').eq('id',id).single(); return data ? res.json(data) : err(res,'Não encontrado',404); }
-    if (req.method==='PUT') { let { data:dt,...rest }=body; if(dt?.includes('/')) { const p=dt.split('/'); dt=`${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`; } const { data }=await sb.from('despesas').update({ data:dt, tipo:rest.tipo, responsavel:rest.responsavel||'', descricao:rest.descricao||'', valor_un:parseFloat(rest.valor_un), qtde:parseInt(rest.qtde)||1, total:parseFloat(rest.total), mes_ref:dt.slice(0,7) }).eq('id',id).select().single(); return res.json(data); }
+    if (req.method==='PUT') { let { data:dt,...rest }=body; if(dt?.includes('/')) { const p=dt.split('/'); dt=`${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`; } const { data, error }=await gravarDespesa('update', { data:dt, tipo:rest.tipo, responsavel:normalizarServidor((rest.responsavel||'').trim())||'', descricao:rest.descricao||'', valor_un:parseFloat(rest.valor_un), qtde:parseInt(rest.qtde)||1, total:parseFloat(rest.total), mes_ref:dt.slice(0,7), meses_cobertos:mesesCobertos(rest.meses_cobertos) }, id); if(error) return err(res, `Erro ao salvar despesa: ${error.message}`, 500); return res.json(data); }
     if (req.method==='DELETE') { await sb.from('despesas').delete().eq('id',id); return res.json({ ok:true }); }
   }
 

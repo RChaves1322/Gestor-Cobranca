@@ -629,6 +629,14 @@ tbody tr:hover td{background:var(--bg3)}
       <!-- Métricas de mensalidades -->
       <div id="fin-totais" class="fin-grid"></div>
 
+      <!-- A receber por mês -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><i class="ti ti-cash-banknote" style="margin-right:6px"></i>A receber por mês — mensalidades em aberto</span>
+        </div>
+        <div class="table-wrap" id="fin-a-receber"><div class="loading">Carregando...</div></div>
+      </div>
+
       <!-- Receita antecipada -->
       <div class="card">
         <div class="card-header">
@@ -1278,6 +1286,34 @@ function openOv(id){
   el.onclick=function(e){ if(e.target===el) closeOv(id); };
 }
 
+/* ── LOGOUT POR INATIVIDADE ──
+   Após 1 hora sem nenhuma interação (clique, tecla, rolagem, toque), a sessão
+   é encerrada e é preciso entrar de novo. Vale também ao reabrir o site depois
+   de 1 hora. A atividade é compartilhada entre abas (localStorage). */
+const INATIVIDADE_MS = 60*60*1000;
+const CHAVE_ATIVIDADE = 'gestorcob_ultima_atividade';
+let _ultimaGravacaoAtividade = 0;
+function registrarAtividade(forcar){
+  const agora=Date.now();
+  if(!forcar && agora-_ultimaGravacaoAtividade < 15000) return; // grava no máx. a cada 15s
+  _ultimaGravacaoAtividade=agora;
+  try{ localStorage.setItem(CHAVE_ATIVIDADE, String(agora)); }catch{}
+}
+function inativoDemais(){
+  const ult=parseInt(localStorage.getItem(CHAVE_ATIVIDADE)||'0',10);
+  return !ult || (Date.now()-ult) > INATIVIDADE_MS;
+}
+function encerrarPorInatividade(){
+  if(!getAccessToken()) return;
+  sair();
+  const er=document.getElementById('login-error');
+  if(er){ er.textContent='Sua sessão foi encerrada após 1 hora sem uso. Entre novamente.'; er.classList.add('show'); }
+}
+['click','keydown','scroll','touchstart','mousemove'].forEach(ev=>
+  document.addEventListener(ev,()=>{ if(getAccessToken() && !inativoDemais()) registrarAtividade(false); },{passive:true,capture:true}));
+setInterval(()=>{ if(getAccessToken() && inativoDemais()) encerrarPorInatividade(); },30000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && getAccessToken() && inativoDemais()) encerrarPorInatividade(); });
+
 function getAccessToken(){ return localStorage.getItem('gestorcob_access_token') || ''; }
 function getRefreshToken(){ return localStorage.getItem('gestorcob_refresh_token') || ''; }
 function salvarSessao(d){
@@ -1286,7 +1322,7 @@ function salvarSessao(d){
   if(d?.user?.email) localStorage.setItem('gestorcob_user_email', d.user.email);
   document.getElementById('auth-user-email').textContent=d?.user?.email||localStorage.getItem('gestorcob_user_email')||'';
 }
-function limparSessao(){ localStorage.removeItem('gestorcob_access_token'); localStorage.removeItem('gestorcob_refresh_token'); localStorage.removeItem('gestorcob_user_email'); }
+function limparSessao(){ localStorage.removeItem(CHAVE_ATIVIDADE); localStorage.removeItem('gestorcob_access_token'); localStorage.removeItem('gestorcob_refresh_token'); localStorage.removeItem('gestorcob_user_email'); }
 async function renovarSessao(){
   const rt=getRefreshToken(); if(!rt) return false;
   const r=await fetch('/api/auth/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:rt})});
@@ -1294,6 +1330,7 @@ async function renovarSessao(){
   const d=await r.json(); salvarSessao(d); return true;
 }
 async function api(method,url,body,_retry=false){
+  if(getAccessToken() && inativoDemais()){ encerrarPorInatividade(); throw new Error('Sessão encerrada por inatividade.'); }
   const opts={method,headers:{'Content-Type':'application/json','Authorization':'Bearer '+getAccessToken()}};
   if(body)opts.body=JSON.stringify(body);
   const r=await fetch(url,opts);
@@ -1313,12 +1350,14 @@ async function fazerLogin(e){
     const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('login-email').value.trim(),password:document.getElementById('login-password').value})});
     const d=await r.json();
     if(!r.ok) throw new Error(d.erro||'Não foi possível entrar');
-    salvarSessao(d); document.getElementById('login-screen').style.display='none'; showPage('cobrancas');
+    salvarSessao(d); registrarAtividade(true); document.getElementById('login-screen').style.display='none'; showPage('cobrancas');
   }catch(err){ er.textContent=err.message; er.classList.add('show'); }
   finally{ btn.disabled=false; btn.textContent='Entrar'; }
 }
 function sair(){ limparSessao(); document.getElementById('login-screen').style.display='flex'; document.getElementById('login-password').value=''; document.getElementById('login-email').focus(); }
 async function iniciarAutenticacao(){
+  // Reabriu o site depois de 1 hora sem uso: exige novo login.
+  if(getAccessToken() && inativoDemais()){ encerrarPorInatividade(); return; }
   const token=getAccessToken();
   if(token){
     try{ const r=await fetch('/api/auth/me',{headers:{Authorization:'Bearer '+token}}); if(r.ok){ const d=await r.json(); salvarSessao(d); document.getElementById('login-screen').style.display='none'; showPage('cobrancas'); return; } }catch{}
@@ -1696,7 +1735,7 @@ async function renderFinanceiro(){
     : '<b>Competência:</b> valores pelo mês a que a mensalidade se refere. 6 meses pagos de uma vez aparecem divididos nos 6 meses.';
 
   try{
-    const {totais, receitaAntecipada} = await finBuscar(elDe.value, elAte.value);
+    const {totais, receitaAntecipada, aReceber:aReceberResp} = await finBuscar(elDe.value, elAte.value);
     const caixa=finVisao==='caixa';
     document.getElementById('fin-totais').innerHTML=`
       <div class="fin-metric" style="${caixa?'border-color:var(--accent)':''}"><div class="fin-metric-label">Recebido no caixa</div><div class="fin-metric-val cv-green">${fmtV(totais.recebido)}</div><div class="fin-metric-sub">${totais.qtd_recebimentos} mensalidade(s) pagas no período</div></div>
@@ -1706,6 +1745,7 @@ async function renderFinanceiro(){
       <div class="fin-metric"><div class="fin-metric-label">Em atraso</div><div class="fin-metric-val cv-red">${fmtV(totais.atrasado)}</div></div>
       <div class="fin-metric"><div class="fin-metric-label">Total faturado</div><div class="fin-metric-val">${fmtV(totais.total)}</div></div>`;
     renderAntecipada(receitaAntecipada);
+    renderAReceber(aReceberResp);
   }catch(e){ toast('Erro ao carregar financeiro','err'); return; }
 
   await _finPopularSelectMeses();
@@ -1713,6 +1753,51 @@ async function renderFinanceiro(){
   await renderHistoricoMensal();
   await renderDistServidor();
   await renderClientesAtivos();
+}
+
+function renderAReceber(lista){
+  const el=document.getElementById('fin-a-receber');
+  if(!el) return;
+  if(!lista || !lista.length){ el.innerHTML='<div class="empty"><i class="ti ti-circle-check"></i><p>Nenhuma mensalidade em aberto.</p></div>'; return; }
+  const tot=lista.reduce((t,g)=>({qtd:t.qtd+g.qtd,valor:t.valor+g.valor,vencido:t.vencido+g.vencido,pendente:t.pendente+g.pendente}),{qtd:0,valor:0,vencido:0,pendente:0});
+  const detalhe=g=>`<tr class="ar-det" id="ar-${g.mes_ref}" style="display:none"><td colspan="6" style="padding:0;background:var(--bg)">
+      <table style="margin:0"><thead><tr><th>Cliente</th><th>Servidor</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead><tbody>
+      ${g.itens.map(i=>`<tr>
+        <td style="font-weight:500">${i.cliente_nome||'—'}</td>
+        <td>${i.servidor||'—'}</td>
+        <td>${fmtD(i.vencimento)}${i.dias_atraso?` <span style="color:var(--red);font-size:11px">${i.dias_atraso}d atraso</span>`:''}</td>
+        <td style="font-weight:600">${fmtV(i.valor)}</td>
+        <td><span class="badge badge-${i.status}">${LBL[i.status]||i.status}</span></td>
+        <td><div class="btn-group">
+          <button class="btn btn-sm btn-success" onclick="abrirPag('${i.id}','${esc(i.cliente_nome||'')}','${esc(i.servidor||'')}','${i.vencimento}','${g.mes_ref}',${i.valor})" title="Registrar pagamento"><i class="ti ti-check"></i></button>
+          <button class="btn btn-sm btn-wapp" onclick="abrirWapp('${i.cliente_id}','${i.status}')" title="Cobrar no WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>
+          <button class="btn btn-sm" style="color:var(--accent);border-color:var(--accent)" onclick="abrirHist('${i.cliente_id}','${esc(i.cliente_nome||'')}')" title="Histórico"><i class="ti ti-clock"></i></button>
+        </div></td>
+      </tr>`).join('')}</tbody></table></td></tr>`;
+  el.innerHTML=`<table><thead><tr>
+      <th>Mês de referência</th><th style="text-align:center">Clientes</th><th>Em atraso</th><th>A vencer</th><th>Total a receber</th><th></th>
+    </tr></thead><tbody>
+    ${lista.map(g=>`<tr style="cursor:pointer" onclick="arToggle('${g.mes_ref}')">
+        <td style="font-weight:600">${fmtMesRef(g.mes_ref)}</td>
+        <td style="text-align:center">${g.qtd}</td>
+        <td style="color:var(--red)">${fmtV(g.vencido)}</td>
+        <td style="color:var(--amber)">${fmtV(g.pendente)}</td>
+        <td style="font-weight:700">${fmtV(g.valor)}</td>
+        <td style="text-align:right;color:var(--muted)"><i class="ti ti-chevron-down" id="ar-ico-${g.mes_ref}"></i></td>
+      </tr>${detalhe(g)}`).join('')}
+    <tr style="font-weight:700;border-top:2px solid var(--border)">
+      <td>Total</td><td style="text-align:center">${tot.qtd}</td>
+      <td style="color:var(--red)">${fmtV(tot.vencido)}</td><td style="color:var(--amber)">${fmtV(tot.pendente)}</td>
+      <td>${fmtV(tot.valor)}</td><td></td>
+    </tr></tbody></table>
+    <div class="fin-ajuda" style="padding:.5rem 1rem 1rem;margin:0">Clique no mês para ver os clientes. Mostra todas as mensalidades em aberto, independente do filtro de período.</div>`;
+}
+function arToggle(mr){
+  const d=document.getElementById('ar-'+mr), ic=document.getElementById('ar-ico-'+mr);
+  if(!d) return;
+  const abrir=d.style.display==='none';
+  d.style.display=abrir?'':'none';
+  if(ic) ic.className=abrir?'ti ti-chevron-up':'ti ti-chevron-down';
 }
 
 function renderAntecipada(ra){
@@ -1839,13 +1924,16 @@ async function renderClientesAtivos(){
   try{
     const {meses} = await finBuscar(de,ate);
     const mesesAsc=[...meses].reverse();
-    const qtd=m=>finV(m).clientes;
+    // Sempre por MÊS DE REFERÊNCIA: clientes com o mês marcado como pago
+    // (Recebido = Sim), independente da data do pagamento e do valor.
+    const qtd=m=>m.clientes_ref||0;
+    const pg=m=>m.clientes_ref_pagos||0;
     const maxCli=Math.max(...mesesAsc.map(qtd),1);
     el.innerHTML=mesesAsc.length===0
       ?'<div style="color:var(--muted);font-size:13px">Sem dados</div>'
-      :`<div style="font-size:11px;color:var(--muted);margin-bottom:8px">${finVisao==='caixa'?'Clientes que pagaram no mês':'Clientes com o mês pago'}</div>`+mesesAsc.map(m=>`
+      :`<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Clientes renovados no mês de referência: pagos (Sim) + em aberto (Não)</div>`+mesesAsc.map(m=>`
         <div class="dist-bar-wrap">
-          <div class="dist-bar-label"><span>${fmtMesRef(m.mes_ref)}</span><span>${qtd(m)} cliente${qtd(m)!==1?'s':''}</span></div>
+          <div class="dist-bar-label"><span>${fmtMesRef(m.mes_ref)}</span><span>${qtd(m)} cliente${qtd(m)!==1?'s':''} · <span style="color:var(--green)">${pg(m)} pagos</span>${qtd(m)-pg(m)>0?` · <span style="color:var(--amber)">${qtd(m)-pg(m)} em aberto</span>`:''}</span></div>
           <div class="dist-bar"><div class="dist-bar-fill" style="width:${Math.round(qtd(m)/maxCli*100)}%"></div></div>
         </div>`).join('');
   }catch(e){el.innerHTML='<div style="color:var(--muted);font-size:13px">Erro ao carregar.</div>';}
@@ -2122,6 +2210,7 @@ async function confirmarPag(){
     if(currentPage==='dashboard')renderDash();
     else if(currentPage==='cobrancas')renderCobs();
     else if(currentPage==='inadimplentes')renderInad();
+    else if(currentPage==='financeiro')renderFinanceiro();
   }catch{toast('Erro ao registrar','err');}
 }
 

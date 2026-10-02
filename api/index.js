@@ -516,6 +516,10 @@ export default async function handler(req, res) {
         em_aberto, atrasado, total:totalCobrancas, outras_receitas:outrasReceitas,
         clientes_ativos:new Set(recebMes.map(r=>r.cliente_id)).size,
         clientes_comp:new Set(compMes.map(r=>r.cliente_id)).size,
+        // Clientes ativos no mês = mensalidade do mês de referência renovada:
+        // paga (Recebido = Sim) ou em aberto (Recebido = Não). Canceladas não contam.
+        clientes_ref:new Set(cobsMes.filter(m=>['pago','pendente','vencido'].includes(m.status)).map(m=>m.cliente_id)).size,
+        clientes_ref_pagos:new Set(cobsMes.filter(m=>m.status==='pago').map(m=>m.cliente_id)).size,
         qtd_recebimentos:recebMes.length, qtd_recebimentos_sem_data:recebSemData.length
       });
     }
@@ -541,7 +545,23 @@ export default async function handler(req, res) {
       meses:antecipadoMeses
     };
 
-    return res.json({meses:resultado.reverse(),totais,receitaAntecipada,mesAtual:mesHoje});
+    // A RECEBER: todas as mensalidades em aberto (pendente/vencido), por mês de
+    // referência. Não depende do filtro de período.
+    const hojeDia=new Date().toISOString().slice(0,10);
+    const abertos={};
+    movimentos.filter(m=>['pendente','vencido'].includes(m.status) && m.mes_ref).forEach(m=>{
+      const g=abertos[m.mes_ref]||(abertos[m.mes_ref]={mes_ref:m.mes_ref,qtd:0,valor:0,vencido:0,pendente:0,itens:[]});
+      const v=parseFloat(m.valor||0);
+      g.qtd++; g.valor+=v; g[m.status]+=v;
+      const dias=m.vencimento ? Math.floor((new Date(hojeDia+'T00:00:00')-new Date(String(m.vencimento).slice(0,10)+'T00:00:00'))/86400000) : null;
+      g.itens.push({ id:m.id, cliente_id:m.cliente_id, cliente_nome:m.cliente_nome, servidor:m.servidor||'', vencimento:m.vencimento, valor:v, status:m.status, dias_atraso:dias!=null&&dias>0?dias:0 });
+    });
+    const aReceber=Object.values(abertos).sort((a,b)=>a.mes_ref.localeCompare(b.mes_ref)).map(g=>({
+      ...g, valor:Number(g.valor.toFixed(2)), vencido:Number(g.vencido.toFixed(2)), pendente:Number(g.pendente.toFixed(2)),
+      itens:g.itens.sort((a,b)=>String(a.cliente_nome||'').localeCompare(String(b.cliente_nome||''),'pt-BR'))
+    }));
+
+    return res.json({meses:resultado.reverse(),totais,receitaAntecipada,aReceber,mesAtual:mesHoje});
   }
 
   // ─── CONFIGURAÇÕES ────────────────────────────────────────────

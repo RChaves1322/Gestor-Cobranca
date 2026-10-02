@@ -1170,7 +1170,7 @@ tbody tr:hover td{background:var(--bg3)}
 
       <div style="display:flex;align-items:center;gap:10px;margin:.5rem 0 1rem;padding:.75rem .9rem;border:1px solid rgba(96,165,250,.25);background:rgba(96,165,250,.06);border-radius:var(--radius-sm)">
         <input type="number" id="iptv-ano-ref" min="2000" max="2100" step="1" style="width:90px;flex:none" onchange="iptvAtualizarModo()">
-        <label for="iptv-ano-ref" style="font-size:13px;cursor:pointer"><strong>Ano de referência da planilha</strong><br><span style="color:var(--muted);font-size:12px">Cada bloco é um mês desse ano: DATA = Janeiro, DATA 2 = Fevereiro … DATA 12 = Dezembro. A data do bloco é o dia em que o mês foi pago. Reimportar corrige registros antigos sem duplicar.</span></label>
+        <label for="iptv-ano-ref" style="font-size:13px;cursor:pointer"><strong>Ano de referência da planilha</strong><br><span style="color:var(--muted);font-size:12px">Cada bloco é um mês desse ano: DATA = Janeiro … DATA 12 = Dezembro. Recebido <b>Sim</b> = pago • <b>Não</b> = fica em aberto • vazio ou <b>-</b> = cliente inativo no mês (nada é gerado). Reimportar não duplica.</span></label>
       </div>
 
       <div id="iptv-preview" style="display:none">
@@ -3314,8 +3314,11 @@ async function iptvConfirmar(){
     const linhasCom2026 = iptvLinhas.filter(cols=>iptvTemPagamentoAno(cols,2026));
     if(modo2026 && !linhasCom2026.length){ toast('Nenhum pagamento de 2026 encontrado na planilha','err'); btn.disabled=false; btn.innerHTML='<i class="ti ti-upload"></i> Importar'; return; }
     const linhasClientes=linhasParaEnviar.map(cols=>cols.join('\t'));
-    const tamanhoLote=8;
-    const total={clientesNovos:0,clientesAtualizados:0,totalRecebimentos:0,totalRecebimentosComData:0,totalRecebimentosSemData:0,totalValorRecebido:0};
+    // Lotes maiores + 2 requisições em paralelo. O backend agora grava cada
+    // lote inteiro em poucas chamadas ao banco, então isso é seguro.
+    const tamanhoLote=50;
+    const paralelo=2;
+    const total={totalEmAberto:0,clientesNovos:0,clientesAtualizados:0,totalRecebimentos:0,totalRecebimentosComData:0,totalRecebimentosSemData:0,totalValorRecebido:0};
     const progress=document.getElementById('iptv-import-progress');
     const progressBar=document.getElementById('iptv-progress-bar');
     const progressTitle=document.getElementById('iptv-progress-title');
@@ -3333,41 +3336,46 @@ async function iptvConfirmar(){
     progressBar.style.width='0%';
     progressDetail.textContent=`0 de ${totalClientes} clientes concluídos • 0 de ${totalLotes} lotes`;
 
-    for(let i=0;i<totalClientes;i+=tamanhoLote){
-      const fim=Math.min(i+tamanhoLote,totalClientes);
-      const loteAtual=Math.floor(i/tamanhoLote)+1;
-      const loteCols=iptvLinhas.slice(i,fim);
-      const textoLote=[headerLinha,...loteCols.map(c=>c.join('\t'))].join('\n');
-      btn.innerHTML=`<i class="ti ti-loader"></i> Lote ${loteAtual}/${totalLotes}`;
-      progressTitle.textContent=`Processando clientes ${i+1}–${fim}`;
-      progressPercent.textContent=`${Math.round((i/totalClientes)*100)}%`;
-      progressBar.style.width=`${Math.round((i/totalClientes)*100)}%`;
-      progressDetail.textContent=`Lote ${loteAtual} de ${totalLotes} • concluídos: ${concluidos}/${totalClientes}`;
+    const lotes=[];
+    for(let i=0;i<totalClientes;i+=tamanhoLote) lotes.push(iptvLinhas.slice(i,Math.min(i+tamanhoLote,totalClientes)));
+    let lotesFeitos=0, proximo=0;
+    btn.innerHTML=`<i class="ti ti-loader"></i> Importando...`;
+    progressTitle.textContent=`Importando ${totalClientes} clientes`;
 
-      const r=await api('POST','/api/importar-clientes-historico',{texto:textoLote, ano_referencia: iptvAnoReferencia()});
+    const enviarLote=async(loteCols)=>{
+      const textoLote=[headerLinha,...loteCols.map(c=>c.join('\t'))].join('\n');
+      let r;
+      try{
+        r=await api('POST','/api/importar-clientes-historico',{texto:textoLote, ano_referencia: iptvAnoReferencia()});
+      }catch(e){
+        // Requisição inteira falhou: todas as linhas vão para a nova tentativa.
+        for(const cols of loteCols) falhas.push({cols,mensagem:e?.message||'Falha na requisição'});
+        r={};
+      }
       total.clientesNovos+=r.clientesNovos||0;
+      total.totalEmAberto+=r.totalEmAberto||0;
       total.clientesAtualizados+=r.clientesAtualizados||0;
       total.totalRecebimentos+=r.totalRecebimentos||0;
       total.totalRecebimentosComData+=r.totalRecebimentosComData||0;
       total.totalRecebimentosSemData+=r.totalRecebimentosSemData||0;
       total.totalValorRecebido+=Number(r.totalValorRecebido||0);
-      if(r.erros?.length){
-        for(const er of r.erros){
-          const idx=Number(er.indice)-1;
-          if(Number.isInteger(idx)&&idx>=0&&idx<loteCols.length) falhas.push({cols:loteCols[idx],mensagem:er.mensagem});
-          else falhas.push({cols:[],mensagem:er.mensagem});
-        }
+      for(const er of (r.erros||[])){
+        const idx=Number(er.indice)-1;
+        if(Number.isInteger(idx)&&idx>=0&&idx<loteCols.length) falhas.push({cols:loteCols[idx],mensagem:er.mensagem});
+        else falhas.push({cols:[],mensagem:er.mensagem});
       }
-      concluidos=fim;
+      lotesFeitos++;
+      concluidos+=loteCols.length;
       const percentual=Math.round((concluidos/totalClientes)*100);
       const decorrido=Math.max(1,(Date.now()-inicio)/1000);
       const velocidade=concluidos/decorrido;
       const restante=velocidade>0?Math.max(0,Math.ceil((totalClientes-concluidos)/velocidade)):0;
-      progressTitle.textContent=`Processando clientes ${Math.min(concluidos+1,totalClientes)}–${Math.min(concluidos+tamanhoLote,totalClientes)}`;
       progressPercent.textContent=`${percentual}%`;
       progressBar.style.width=`${percentual}%`;
-      progressDetail.textContent=`Concluídos: ${concluidos}/${totalClientes} • Lotes: ${loteAtual}/${totalLotes} • Estimativa restante: ${restante}s`;
-    }
+      progressDetail.textContent=`Concluídos: ${concluidos}/${totalClientes} • Lotes: ${lotesFeitos}/${totalLotes} • Estimativa restante: ${restante}s`;
+    };
+    const trabalhador=async()=>{ while(proximo<lotes.length){ const l=lotes[proximo++]; await enviarLote(l); } };
+    await Promise.all(Array.from({length:Math.min(paralelo,lotes.length)},trabalhador));
 
     // Se alguma linha falhou, tenta somente as falhas uma segunda vez.
     if(falhas.length){
@@ -3416,7 +3424,7 @@ async function iptvConfirmar(){
 
     if(ok){
       progressTitle.textContent='✓ Importação concluída e conferida';
-      progressDetail.innerHTML=`<strong>${auditoria.encontrados}/${auditoria.totalFonte}</strong> clientes conferidos • <strong>${auditoriaFinanceira.banco.totalRecebimentos}</strong> recebimentos • <strong>${fmtV(auditoriaFinanceira.banco.totalValorRecebido)}</strong> recebidos • financeiro conferido`;
+      progressDetail.innerHTML=`<strong>${auditoria.encontrados}/${auditoria.totalFonte}</strong> clientes conferidos • <strong>${auditoriaFinanceira.banco.totalRecebimentos}</strong> recebimentos • <strong>${fmtV(auditoriaFinanceira.banco.totalValorRecebido)}</strong> recebidos • <strong>${total.totalEmAberto}</strong> meses em aberto • financeiro conferido`;
       btn.innerHTML='<i class="ti ti-check"></i> Concluído';
       setTimeout(()=>closeOv('ov-iptv'),900);
       toast(`✓ ${auditoria.encontrados} clientes conferidos. Nenhum ficou faltando.`);

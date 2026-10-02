@@ -684,6 +684,7 @@ export default async function handler(req, res) {
     const anoRef = Number(body.ano_referencia || body.ano_pagamentos || new Date().getFullYear());
     if (!Number.isInteger(anoRef) || anoRef < 2000 || anoRef > 2100) return err(res,'Ano de referência inválido');
     const ORIGENS_IMPORTACAO=['importacao_historico','importacao_complementar_2026','importacao_planilha'];
+    const hojeISO=new Date().toISOString().slice(0,10);
     if (!texto?.trim()) return err(res,'Texto vazio');
 
     const pad2=n=>String(n).padStart(2,'0');
@@ -711,33 +712,241 @@ export default async function handler(req, res) {
 
     let clientesNovos=0, clientesAtualizados=0;
     let totalRecebimentos=0, totalRecebimentosComData=0, totalRecebimentosSemData=0, totalValorRecebido=0;
-    const processados=[];
-    const erros=[];
+    let processados=[];
+    let erros=[];
 
+    // ── Helpers compartilhados (lote e linha a linha) ──────────────
+    const lerLinha=(linha)=>{
+      const cols=linha.split('\t');
+      if(cols.length<6) throw new Error(`Linha com apenas ${cols.length} colunas; esperado pelo menos 6`);
+      const nomeRaw=(cols[0]||'').trim();
+      if(!nomeRaw) throw new Error('Nome do cliente vazio');
+      const ativoRaw=(cols[1]||'').trim().toLowerCase();
+      return {
+        cols, nomeRaw,
+        servidorFinal:normalizarServidor((cols[2]||'').trim())||'',
+        valorMensal:parseValor(cols[3]),
+        dia:parseInt(cols[4],10)||1,
+        obs:(cols[5]||'').trim(),
+        status:ativoRaw==='sim'?'ativo':'inativo'
+      };
+    };
+
+    const montarMovimentos=(info, cliente)=>{
+      const { cols, nomeRaw, servidorFinal, valorMensal, dia }=info;
+      const movimentos=[];
+      let blocoStart=6, bloco=0;
+      while(blocoStart+4<cols.length && bloco<12) {
+        bloco++;
+        const dataStr=(cols[blocoStart]||'').trim();
+        const recebidoStr=(cols[blocoStart+1]||'').trim().toLowerCase();
+        const descStr=(cols[blocoStart+2]||'').trim();
+        const pontos=parseInt(cols[blocoStart+3],10)||0;
+        const valorStr=(cols[blocoStart+4]||'').trim();
+        blocoStart+=5;
+
+        // Recebido = Sim  → mês pago
+        // Recebido = Não  → mês em aberto (gera cobrança pendente/vencida)
+        // vazio ou "-"    → cliente não estava ativo no mês: não gera nada
+        const pago = recebidoStr==='sim' || recebidoStr==='s';
+        const emAberto = ['não','nao','n'].includes(recebidoStr);
+        if(!pago && !emAberto) continue;
+
+        const mesRefA=`${anoRef}-${pad2(bloco)}`;
+        const diaVencA=Math.min(dia, diasNoMes(bloco, anoRef));
+        if(emAberto){
+          const venc=`${mesRefA}-${pad2(diaVencA)}`;
+          movimentos.push({
+            id:`mov_${cliente.id}_${anoRef}${pad2(bloco)}`,
+            cliente_id:cliente.id, cliente_nome:nomeRaw, servidor:servidorFinal,
+            valor:parseValor(valorStr)||valorMensal||0, vencimento:venc, mes_ref:mesRefA,
+            status: venc < hojeISO ? 'vencido' : 'pendente',
+            pago_em:null, valor_pago:null, desconto:0, obs_pagamento:'',
+            tipo_movimento:'mensalidade', pontos, bloco_origem:bloco,
+            origem:'importacao_planilha', criado:new Date().toISOString()
+          });
+          continue;
+        }
+
+        const dataISO=parseDataBR(dataStr);
+        const valorRecebido=parseValor(valorStr);
+        const desconto=parseValor(descStr);
+        const valorOriginal=desconto>0 ? valorRecebido+desconto : Math.max(valorMensal||0, valorRecebido);
+        const mesRef=`${anoRef}-${pad2(bloco)}`;
+        const diaVenc=Math.min(dia, diasNoMes(bloco, anoRef));
+        movimentos.push({
+          // ID determinístico: reimportar a mesma planilha atualiza, não duplica.
+          id:`mov_${cliente.id}_${anoRef}${pad2(bloco)}`,
+          cliente_id:cliente.id, cliente_nome:nomeRaw, servidor:servidorFinal,
+          valor:valorOriginal, vencimento:`${mesRef}-${pad2(diaVenc)}`, mes_ref:mesRef,
+          status:'pago', pago_em:dataISO, valor_pago:valorRecebido, desconto,
+          obs_pagamento:descStr, tipo_movimento:'mensalidade', pontos, bloco_origem:bloco,
+          origem:'importacao_planilha', criado:new Date().toISOString()
+        });
+      }
+      return movimentos;
+    };
+
+    // Registros antigos que representam a MESMA linha da planilha (cliente +
+    // bloco + data de pagamento) são apagados e substituídos. Cobranças em
+    // aberto de meses que a planilha mostra como pagos são removidas/canceladas.
+    // Também decide quais meses "em aberto" da planilha devem mesmo virar
+    // cobrança: se o mês já está pago no sistema (ex.: baixado pelo site
+    // depois que a planilha foi feita), a cobrança em aberto NÃO é criada e
+    // o pagamento existente nunca é sobrescrito.
+    const planejarLimpeza=(antigos, movimentos)=>{
+      const apagar=[], cancelar=[];
+      if(!movimentos.length) return {apagar,cancelar,movimentos};
+      antigos=antigos||[];
+      const pagos=movimentos.filter(m=>m.status==='pago');
+      const chaves=new Set(pagos.map(m=>`${m.bloco_origem}|${m.pago_em||''}`));
+      const ehAntigoSubstituido=a=>ORIGENS_IMPORTACAO.includes(a.origem) && a.status==='pago' &&
+        chaves.has(`${a.bloco_origem}|${a.pago_em ? String(a.pago_em).slice(0,10) : ''}`);
+
+      // Meses já pagos no sistema que esta importação NÃO vai substituir.
+      const idsPagosNovos=new Set(pagos.map(m=>m.id));
+      const mesesPagosSistema=new Set(antigos
+        .filter(a=>a.status==='pago' && !idsPagosNovos.has(a.id) && !ehAntigoSubstituido(a))
+        .map(a=>a.mes_ref));
+      const finais=movimentos.filter(m=>m.status==='pago' || !mesesPagosSistema.has(m.mes_ref));
+
+      const idsNovos=new Set(finais.map(m=>m.id));
+      const mesesCobertos=new Set(finais.map(m=>m.mes_ref));
+      for(const a of antigos){
+        if(idsNovos.has(a.id)) continue;
+        if(ehAntigoSubstituido(a)) { apagar.push(a.id); continue; }
+        // Outra cobrança em aberto do mesmo mês (ex.: "gerar cobranças do mês")
+        // seria duplicada pela linha da planilha: remove/cancela.
+        if(['pendente','vencido'].includes(a.status) && mesesCobertos.has(a.mes_ref)) {
+          if(a.origem==='geracao_mensal' || !a.origem) apagar.push(a.id); else cancelar.push(a.id);
+        }
+      }
+      return {apagar,cancelar,movimentos:finais};
+    };
+
+    let totalEmAberto=0;
+    const contarMovimentos=(movimentos)=>{
+      for(const m of movimentos){
+        if(m.status!=='pago'){ totalEmAberto++; continue; }
+        totalRecebimentos++;
+        totalValorRecebido+=Number(m.valor_pago||0);
+        if(m.pago_em) totalRecebimentosComData++; else totalRecebimentosSemData++;
+      }
+    };
+
+    const emPartes=(arr,n)=>{ const out=[]; for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n)); return out; };
+
+    // ── Caminho rápido: o lote inteiro em ~7 chamadas ao Supabase ──
+    // Antes eram 6 a 8 chamadas POR CLIENTE, uma após a outra.
+    const importarEmLote=async()=>{
+      const itens=[];
+      dataLinhas.forEach((linha,i)=>{
+        try { itens.push({ ...lerLinha(linha), indice:i+1 }); }
+        catch(e){ erros.push({indice:i+1,nome:(linha.split('\t')[0]||'').trim(),mensagem:e.message}); }
+      });
+      if(!itens.length) return;
+
+      // 1) Servidores (uma chamada)
+      const servidores=[...new Set(itens.map(it=>it.servidorFinal).filter(Boolean))];
+      if(servidores.length){
+        const { error } = await sb.from('servidores').upsert(
+          servidores.map(nome=>({ id:uid(), nome, criado:new Date().toISOString() })),
+          { onConflict:'nome', ignoreDuplicates:true });
+        if(error) throw error;
+      }
+
+      // 2) Clientes existentes com esses nomes (uma chamada por 100 nomes)
+      const nomes=[...new Set(itens.map(it=>it.nomeRaw))];
+      const existentes=[];
+      for(const parte of emPartes(nomes,100)){
+        const { data, error } = await sb.from('clientes').select('*').in('nome',parte);
+        if(error) throw error;
+        existentes.push(...(data||[]));
+      }
+      const porNomeServ=new Map(existentes.map(c=>[`${c.nome}|||${c.servidor||''}`,c]));
+      const porNome=new Map();
+      for(const c of existentes){ if(!porNome.has(c.nome)) porNome.set(c.nome,[]); porNome.get(c.nome).push(c); }
+
+      // 3) Monta clientes (novos + atualizados) e grava tudo de uma vez
+      const linhasClientes=[]; const vistos=new Map();
+      for(const it of itens){
+        const chave=`${it.nomeRaw}|||${it.servidorFinal}`;
+        let base=vistos.get(chave) || porNomeServ.get(chave);
+        if(!base){
+          const mesmos=porNome.get(it.nomeRaw)||[];
+          if(mesmos.length===1 && !(mesmos[0].servidor||'').trim()) base=mesmos[0];
+        }
+        let cliente;
+        if(base){
+          cliente={ ...base, servidor:it.servidorFinal, dia:it.dia, valor:it.valorMensal||base.valor||0, status:it.status, obs:it.obs };
+          if(!vistos.has(chave)) clientesAtualizados++;
+        } else {
+          cliente={ id:uid()+Math.random().toString(36).slice(2,5), nome:it.nomeRaw, celular:'', servidor:it.servidorFinal, dia:it.dia, valor:it.valorMensal||0, status:it.status, obs:it.obs, criado:new Date().toISOString() };
+          clientesNovos++;
+        }
+        vistos.set(chave,cliente);
+        it.cliente=cliente;
+      }
+      for(const c of vistos.values()) linhasClientes.push(c);
+      for(const parte of emPartes(linhasClientes,200)){
+        const { error } = await sb.from('clientes').upsert(parte,{onConflict:'id'});
+        if(error) throw error;
+      }
+
+      // 4) Movimentos atuais desses clientes (paginado)
+      const ids=[...new Set(itens.map(it=>it.cliente.id))];
+      const antigosPorCliente=new Map();
+      for(const parte of emPartes(ids,100)){
+        const { data, error } = await selectAll('movimentos_financeiros','id,cliente_id,bloco_origem,pago_em,mes_ref,status,origem',q=>q.in('cliente_id',parte).order('id'));
+        if(error) throw error;
+        for(const m of data){ if(!antigosPorCliente.has(m.cliente_id)) antigosPorCliente.set(m.cliente_id,[]); antigosPorCliente.get(m.cliente_id).push(m); }
+      }
+
+      // 5) Planeja tudo em memória
+      const todosMov=[], apagar=[], cancelar=[];
+      for(const it of itens){
+        const plano=planejarLimpeza(antigosPorCliente.get(it.cliente.id),montarMovimentos(it,it.cliente));
+        apagar.push(...plano.apagar); cancelar.push(...plano.cancelar);
+        todosMov.push(...plano.movimentos);
+        it.movs=plano.movimentos;
+      }
+
+      // Mesma linha repetida na planilha geraria o mesmo ID duas vezes no
+      // mesmo upsert (erro no Postgres). Mantém a última ocorrência.
+      const movUnicos=[...new Map(todosMov.map(m=>[m.id,m])).values()];
+
+      // 6) Grava em blocos grandes
+      for(const parte of emPartes([...new Set(apagar)],200)){
+        const { error } = await sb.from('movimentos_financeiros').delete().in('id',parte);
+        if(error) throw error;
+      }
+      for(const parte of emPartes([...new Set(cancelar)],200)){
+        const { error } = await sb.from('movimentos_financeiros').update({ status:'cancelado' }).in('id',parte);
+        if(error) throw error;
+      }
+      for(const parte of emPartes(movUnicos,500)){
+        if(!parte.length) continue;
+        const { error } = await sb.from('movimentos_financeiros').upsert(parte,{onConflict:'id'});
+        if(error) throw error;
+      }
+
+      for(const it of itens){
+        contarMovimentos(it.movs);
+        processados.push({indice:it.indice,nome:it.nomeRaw,servidor:it.servidorFinal,status:it.status,recebimentos:it.movs.filter(m=>m.status==='pago').length,emAberto:it.movs.filter(m=>m.status!=='pago').length,valorRecebido:it.movs.reduce((s,m)=>s+Number(m.valor_pago||0),0)});
+      }
+    };
+
+    // ── Caminho seguro: linha a linha (usado só se o lote falhar) ──
     const processarLinha = async (linha, numeroLinha) => {
       try {
-        const cols=linha.split('\t');
-        if(cols.length<6) throw new Error(`Linha com apenas ${cols.length} colunas; esperado pelo menos 6`);
-        const nomeRaw=(cols[0]||'').trim();
-        if(!nomeRaw) throw new Error('Nome do cliente vazio');
-        const ativoRaw=(cols[1]||'').trim().toLowerCase();
-        const servidorFinal=normalizarServidor((cols[2]||'').trim())||'';
-        const valorMensal=parseValor(cols[3]);
-        const dia=parseInt(cols[4],10)||1;
-        const obs=(cols[5]||'').trim();
-        const status=ativoRaw==='sim'?'ativo':'inativo';
-
-        // Localiza/cria servidor. O upsert é idempotente.
+        const info=lerLinha(linha);
+        const { nomeRaw, servidorFinal, valorMensal, dia, obs, status }=info;
         if (servidorFinal) {
           const { error:eSrv } = await sb.from('servidores').upsert(
             { id:uid(), nome:servidorFinal, criado:new Date().toISOString() },
-            { onConflict:'nome', ignoreDuplicates:true }
-          );
+            { onConflict:'nome', ignoreDuplicates:true });
           if(eSrv) throw eSrv;
         }
-
-        // Cliente é identificado por NOME + SERVIDOR. Isso preserva casos como
-        // "Denilson9757" / "Denilson9757 002" e clientes homônimos.
         let clienteExist=null;
         const buscaExata=await sb.from('clientes').select('*').eq('nome',nomeRaw).eq('servidor',servidorFinal).limit(1);
         if(buscaExata.error) throw buscaExata.error;
@@ -747,7 +956,6 @@ export default async function handler(req, res) {
           if(buscaNome.error) throw buscaNome.error;
           if((buscaNome.data||[]).length===1 && !(buscaNome.data[0].servidor||'').trim()) clienteExist=buscaNome.data[0];
         }
-
         let cliente;
         if(clienteExist) {
           const { data, error:eUpd }=await sb.from('clientes').update({
@@ -762,98 +970,43 @@ export default async function handler(req, res) {
           cliente=data; clientesNovos++;
         }
 
-        // Monta TODOS os recebimentos do cliente primeiro e grava em uma única
-        // operação.
-        const movimentos=[];
-        let blocoStart=6, bloco=0;
-        while(blocoStart+4<cols.length && bloco<12) {
-          bloco++;
-          const dataStr=(cols[blocoStart]||'').trim();
-          const recebidoStr=(cols[blocoStart+1]||'').trim().toLowerCase();
-          const descStr=(cols[blocoStart+2]||'').trim();
-          const pontos=parseInt(cols[blocoStart+3],10)||0;
-          const valorStr=(cols[blocoStart+4]||'').trim();
-          blocoStart+=5;
-
-          if(recebidoStr!=='sim' && recebidoStr!=='s') continue;
-
-          const dataISO=parseDataBR(dataStr);
-          const valorRecebido=parseValor(valorStr);
-          const desconto=parseValor(descStr);
-          const valorOriginal=desconto>0 ? valorRecebido+desconto : Math.max(valorMensal||0, valorRecebido);
-          const mesRef=`${anoRef}-${pad2(bloco)}`;
-          const diaVenc=Math.min(dia, diasNoMes(bloco, anoRef));
-
-          movimentos.push({
-            // ID determinístico: reimportar a mesma planilha atualiza, não duplica.
-            id:`mov_${cliente.id}_${anoRef}${pad2(bloco)}`,
-            cliente_id:cliente.id,
-            cliente_nome:nomeRaw,
-            servidor:servidorFinal,
-            valor:valorOriginal,
-            vencimento:`${mesRef}-${pad2(diaVenc)}`,
-            mes_ref:mesRef,
-            status:'pago',
-            pago_em:dataISO,
-            valor_pago:valorRecebido,
-            desconto,
-            obs_pagamento:descStr,
-            tipo_movimento:'mensalidade',
-            pontos,
-            bloco_origem:bloco,
-            origem:'importacao_planilha',
-            criado:new Date().toISOString()
-          });
-        }
-
-        // Limpeza das importações anteriores (que gravavam mes_ref = mês do
-        // pagamento). Um registro antigo é a MESMA linha da planilha quando
-        // bate cliente + bloco + data de pagamento. Esses são apagados e
-        // substituídos pelo registro novo com a referência correta.
+        let movimentos=montarMovimentos(info,cliente);
         if(movimentos.length){
           const { data:antigos, error:eAnt } = await sb.from('movimentos_financeiros')
-            .select('id,bloco_origem,pago_em,mes_ref,status,origem')
-            .eq('cliente_id',cliente.id);
+            .select('id,bloco_origem,pago_em,mes_ref,status,origem').eq('cliente_id',cliente.id);
           if(eAnt) throw eAnt;
-          const idsNovos=new Set(movimentos.map(m=>m.id));
-          const chaves=new Set(movimentos.map(m=>`${m.bloco_origem}|${m.pago_em||''}`));
-          const mesesPagos=new Set(movimentos.map(m=>m.mes_ref));
-          const apagar=[], cancelar=[];
-          for(const a of (antigos||[])){
-            if(idsNovos.has(a.id)) continue;
-            const ehImport=ORIGENS_IMPORTACAO.includes(a.origem);
-            if(ehImport && chaves.has(`${a.bloco_origem}|${a.pago_em ? String(a.pago_em).slice(0,10) : ''}`)) { apagar.push(a.id); continue; }
-            // Cobrança em aberto de um mês que a planilha mostra como pago
-            // (ex.: "Outubro/2026 Pendente" gerada antes da correção).
-            if(['pendente','vencido'].includes(a.status) && mesesPagos.has(a.mes_ref)) {
-              if(a.origem==='geracao_mensal' || !a.origem) apagar.push(a.id); else cancelar.push(a.id);
-            }
-          }
+          const plano=planejarLimpeza(antigos,movimentos);
+          const { apagar, cancelar }=plano;
+          movimentos=plano.movimentos;
           if(apagar.length){ const { error } = await sb.from('movimentos_financeiros').delete().in('id',apagar); if(error) throw error; }
           if(cancelar.length){ const { error } = await sb.from('movimentos_financeiros').update({ status:'cancelado' }).in('id',cancelar); if(error) throw error; }
-
-          const { error:eRec }=await sb.from('movimentos_financeiros').upsert(movimentos,{onConflict:'id'});
-          if(eRec) throw eRec;
+          if(movimentos.length){
+            const { error:eRec }=await sb.from('movimentos_financeiros').upsert(movimentos,{onConflict:'id'});
+            if(eRec) throw eRec;
+          }
         }
-
-        for(const m of movimentos){
-          totalRecebimentos++;
-          totalValorRecebido+=Number(m.valor_pago||0);
-          if(m.pago_em) totalRecebimentosComData++; else totalRecebimentosSemData++;
-        }
-
-        return {ok:true,detalhe:{indice:numeroLinha,nome:nomeRaw,servidor:servidorFinal,status,recebimentos:movimentos.length,valorRecebido:movimentos.reduce((s,m)=>s+Number(m.valor_pago||0),0)}};
+        contarMovimentos(movimentos);
+        return {ok:true,detalhe:{indice:numeroLinha,nome:nomeRaw,servidor:servidorFinal,status,recebimentos:movimentos.filter(m=>m.status==='pago').length,emAberto:movimentos.filter(m=>m.status!=='pago').length,valorRecebido:movimentos.reduce((s,m)=>s+Number(m.valor_pago||0),0)}};
       } catch(e) {
         return {ok:false,erro:{indice:numeroLinha,nome:(linha.split('\t')[0]||'').trim(),mensagem:e?.message||String(e)}};
       }
     };
 
-    // Processamento sequencial dentro de cada lote: reduz concorrência no Supabase
-    // e garante que uma falha seja atribuída a uma linha específica.
-    const resultados=[];
-    for(let i=0;i<dataLinhas.length;i++) resultados.push(await processarLinha(dataLinhas[i],i+1));
-    for(const r of resultados) {
-      if(r.ok) processados.push(r.detalhe); else erros.push(r.erro);
+    let modo='lote';
+    try {
+      await importarEmLote();
+    } catch(eLote) {
+      // Tudo é idempotente (IDs fixos), então dá para refazer linha a linha
+      // com segurança e descobrir exatamente qual cliente tem problema.
+      console.error('Importação em lote falhou, usando linha a linha:', eLote?.message);
+      modo='linha_a_linha';
+      clientesNovos=0; clientesAtualizados=0;
+      totalRecebimentos=0; totalEmAberto=0; totalRecebimentosComData=0; totalRecebimentosSemData=0; totalValorRecebido=0;
+      processados=[]; erros=[];
+      for(let i=0;i<dataLinhas.length;i++){
+        const r=await processarLinha(dataLinhas[i],i+1);
+        if(r.ok) processados.push(r.detalhe); else erros.push(r.erro);
+      }
     }
 
     return res.json({
@@ -868,6 +1021,8 @@ export default async function handler(req, res) {
       totalRecebimentosSemData,
       totalValorRecebido:Number(totalValorRecebido.toFixed(2)),
       anoReferencia:anoRef,
+      totalEmAberto,
+      modo,
       processadosDetalhes:processados,
       erros
     });

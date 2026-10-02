@@ -187,9 +187,11 @@ export default async function handler(req, res) {
       desconto: Number(m.desconto||0),
       origem: m.origem || 'sistema'
     })).sort((a,b)=>{
-      const da = new Date(a.pago_em || a.vencimento || 0).getTime();
-      const db = new Date(b.pago_em || b.vencimento || 0).getTime();
-      return db-da;
+      // Ordena pelo mês de referência (competência), mais recente primeiro.
+      const ra = a.mes_ref || String(a.vencimento||'').slice(0,7);
+      const rb = b.mes_ref || String(b.vencimento||'').slice(0,7);
+      if (ra !== rb) return rb.localeCompare(ra);
+      return String(b.pago_em||'').localeCompare(String(a.pago_em||''));
     });
     return res.json(historico);
   }
@@ -355,7 +357,12 @@ export default async function handler(req, res) {
     if (eMovs) return err(res, `Erro ao auditar financeiro: ${eMovs.message}`, 500);
 
     const anoFiltro=params.ano ? String(params.ano) : '';
-    const rows=(movs||[]).filter(r=>!anoFiltro || String(r.pago_em||r.mes_ref||'').slice(0,4)===anoFiltro);
+    const origemFiltro=params.origem ? String(params.origem) : '';
+    const anoRefFiltro=params.ano_ref ? String(params.ano_ref) : '';
+    const rows=(movs||[])
+      .filter(r=>!anoFiltro || String(r.pago_em||r.mes_ref||'').slice(0,4)===anoFiltro)
+      .filter(r=>!origemFiltro || r.origem===origemFiltro)
+      .filter(r=>!anoRefFiltro || String(r.mes_ref||'').slice(0,4)===anoRefFiltro);
     const receb=rows.filter(r=>r.status==='pago' && r.valor_pago!=null);
     const meses={};
     for(const r of receb){
@@ -664,14 +671,19 @@ export default async function handler(req, res) {
   }
 
   // ─── IMPORTAR CLIENTES + HISTÓRICO ────────────────────────────
-  // Importa os clientes e PRESERVA CADA RECEBIMENTO como um registro
-  // independente. Não usamos a posição DATA/DATA2... como mês de referência,
-  // pois esses campos são eventos de pagamento e podem conter vários
-  // pagamentos no mesmo mês/data.
+  // A planilha tem 12 blocos (DATA/Recebido/Desc/Pontos/Valor) e cada bloco
+  // é UM MÊS DE REFERÊNCIA do ano da planilha: bloco 1 = Janeiro, bloco 2 =
+  // Fevereiro ... bloco 12 = Dezembro. A coluna DATA do bloco é o dia em que
+  // aquele mês foi pago (pode ser antecipado, ex.: 6 meses pagos no mesmo dia).
+  //   mes_ref    = ano_referencia + número do bloco  (competência)
+  //   vencimento = ano_referencia + bloco + dia de vencimento do cliente
+  //   pago_em    = DATA do bloco                        (caixa)
   if (url === '/importar-clientes-historico' && req.method==='POST') {
     const { texto } = body;
-    const anoPagamentos = body.ano_pagamentos ? Number(body.ano_pagamentos) : null;
-    if (anoPagamentos && (!Number.isInteger(anoPagamentos) || anoPagamentos < 2000 || anoPagamentos > 2100)) return err(res,'Ano de pagamentos inválido');
+    // ano_pagamentos é aceito apenas por compatibilidade com o frontend antigo.
+    const anoRef = Number(body.ano_referencia || body.ano_pagamentos || new Date().getFullYear());
+    if (!Number.isInteger(anoRef) || anoRef < 2000 || anoRef > 2100) return err(res,'Ano de referência inválido');
+    const ORIGENS_IMPORTACAO=['importacao_historico','importacao_complementar_2026','importacao_planilha'];
     if (!texto?.trim()) return err(res,'Texto vazio');
 
     const pad2=n=>String(n).padStart(2,'0');
@@ -751,11 +763,10 @@ export default async function handler(req, res) {
         }
 
         // Monta TODOS os recebimentos do cliente primeiro e grava em uma única
-        // operação. Antes fazíamos um upsert por recebimento; com centenas de
-        // operações isso aumentava a chance de importação parcial.
+        // operação.
         const movimentos=[];
         let blocoStart=6, bloco=0;
-        while(blocoStart+4<cols.length) {
+        while(blocoStart+4<cols.length && bloco<12) {
           bloco++;
           const dataStr=(cols[blocoStart]||'').trim();
           const recebidoStr=(cols[blocoStart+1]||'').trim().toLowerCase();
@@ -767,39 +778,20 @@ export default async function handler(req, res) {
           if(recebidoStr!=='sim' && recebidoStr!=='s') continue;
 
           const dataISO=parseDataBR(dataStr);
-          if(anoPagamentos && (!dataISO || Number(dataISO.slice(0,4))!==anoPagamentos)) continue;
           const valorRecebido=parseValor(valorStr);
           const desconto=parseValor(descStr);
           const valorOriginal=desconto>0 ? valorRecebido+desconto : Math.max(valorMensal||0, valorRecebido);
-          const mesRef=dataISO ? dataISO.slice(0,7) : null;
-          let receiptId=`mov_${cliente.id}_${String(bloco).padStart(2,'0')}`;
-          let idExistente=null;
-
-          // Na importação complementar de 2026, nunca usamos somente o número
-          // do bloco como identidade. O mesmo bloco pode representar um mês de
-          // 2025 na primeira planilha. Procuramos primeiro o recebimento exato
-          // por cliente + data + valor + bloco para atualizar em vez de duplicar.
-          if(anoPagamentos){
-            const { data:existente, error:eExist } = await sb.from('movimentos_financeiros')
-              .select('id')
-              .eq('cliente_id',cliente.id)
-              .eq('pago_em',dataISO)
-              .eq('valor_pago',valorRecebido)
-              .eq('bloco_origem',bloco)
-              .limit(1);
-            if(eExist) throw eExist;
-            idExistente=existente?.[0]?.id||null;
-            if(!idExistente) receiptId=`mov_${cliente.id}_complemento_${anoPagamentos}_${dataISO}_${bloco}`;
-            else receiptId=idExistente;
-          }
+          const mesRef=`${anoRef}-${pad2(bloco)}`;
+          const diaVenc=Math.min(dia, diasNoMes(bloco, anoRef));
 
           movimentos.push({
-            id:receiptId,
+            // ID determinístico: reimportar a mesma planilha atualiza, não duplica.
+            id:`mov_${cliente.id}_${anoRef}${pad2(bloco)}`,
             cliente_id:cliente.id,
             cliente_nome:nomeRaw,
             servidor:servidorFinal,
             valor:valorOriginal,
-            vencimento:dataISO,
+            vencimento:`${mesRef}-${pad2(diaVenc)}`,
             mes_ref:mesRef,
             status:'pago',
             pago_em:dataISO,
@@ -809,12 +801,37 @@ export default async function handler(req, res) {
             tipo_movimento:'mensalidade',
             pontos,
             bloco_origem:bloco,
-            origem:anoPagamentos ? 'importacao_complementar_2026' : 'importacao_historico',
+            origem:'importacao_planilha',
             criado:new Date().toISOString()
           });
         }
 
+        // Limpeza das importações anteriores (que gravavam mes_ref = mês do
+        // pagamento). Um registro antigo é a MESMA linha da planilha quando
+        // bate cliente + bloco + data de pagamento. Esses são apagados e
+        // substituídos pelo registro novo com a referência correta.
         if(movimentos.length){
+          const { data:antigos, error:eAnt } = await sb.from('movimentos_financeiros')
+            .select('id,bloco_origem,pago_em,mes_ref,status,origem')
+            .eq('cliente_id',cliente.id);
+          if(eAnt) throw eAnt;
+          const idsNovos=new Set(movimentos.map(m=>m.id));
+          const chaves=new Set(movimentos.map(m=>`${m.bloco_origem}|${m.pago_em||''}`));
+          const mesesPagos=new Set(movimentos.map(m=>m.mes_ref));
+          const apagar=[], cancelar=[];
+          for(const a of (antigos||[])){
+            if(idsNovos.has(a.id)) continue;
+            const ehImport=ORIGENS_IMPORTACAO.includes(a.origem);
+            if(ehImport && chaves.has(`${a.bloco_origem}|${a.pago_em ? String(a.pago_em).slice(0,10) : ''}`)) { apagar.push(a.id); continue; }
+            // Cobrança em aberto de um mês que a planilha mostra como pago
+            // (ex.: "Outubro/2026 Pendente" gerada antes da correção).
+            if(['pendente','vencido'].includes(a.status) && mesesPagos.has(a.mes_ref)) {
+              if(a.origem==='geracao_mensal' || !a.origem) apagar.push(a.id); else cancelar.push(a.id);
+            }
+          }
+          if(apagar.length){ const { error } = await sb.from('movimentos_financeiros').delete().in('id',apagar); if(error) throw error; }
+          if(cancelar.length){ const { error } = await sb.from('movimentos_financeiros').update({ status:'cancelado' }).in('id',cancelar); if(error) throw error; }
+
           const { error:eRec }=await sb.from('movimentos_financeiros').upsert(movimentos,{onConflict:'id'});
           if(eRec) throw eRec;
         }
@@ -850,7 +867,7 @@ export default async function handler(req, res) {
       totalRecebimentosComData,
       totalRecebimentosSemData,
       totalValorRecebido:Number(totalValorRecebido.toFixed(2)),
-      anoPagamentos,
+      anoReferencia:anoRef,
       processadosDetalhes:processados,
       erros
     });

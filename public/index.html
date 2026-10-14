@@ -193,6 +193,7 @@ tbody tr:hover td{background:var(--bg3)}
 .ext-tab select{width:100%}
 .ext-tab .ext-det input{width:100%;min-width:0}
 .ext-nome{font-weight:600;line-height:1.25}
+.ext-parte{border-left:2px solid var(--accent);padding-left:8px;display:flex;flex-direction:column;gap:4px}
 .ext-lembrar{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin-top:4px;cursor:pointer}
 .ext-lembrar input{width:13px!important;height:13px;margin:0}
 .ext-tab select,.ext-tab input{font-size:12px;padding:4px 6px}
@@ -2388,7 +2389,7 @@ async function delCliente(id){
 // conferidos" manda para o banco só as linhas que você já conferiu.
 let _ext={itens:[],clientes:[],meses:{},hist:{},filtro:'pendentes',snap:null,tiposR:[],tiposD:[],texto:'',arquivo:''};
 const EXT_RASCUNHO='gestorcob_extrato_rascunho';
-const EXT_CAMPOS=['destino','cliente_id','meses','qtd_meses','tipo','servidor','descricao_user','meses_cobertos','lembrar','conferido','auto_ignorado'];
+const EXT_CAMPOS=['destino','cliente_id','meses','qtd_meses','tipo','servidor','descricao_user','meses_cobertos','lembrar','conferido','auto_ignorado','partes'];
 const _mesCurto=mr=>{const [a,m]=mr.split('-');return `${mesNome(parseInt(m))}/${a.slice(2)}`;};
 function extLerRascunho(){ try{ return JSON.parse(localStorage.getItem(EXT_RASCUNHO)||'null'); }catch{ return null; } }
 let _extTimer=null;
@@ -2451,6 +2452,7 @@ async function extCarregar(texto, arquivo, decisoes){
       const salvo=decisoes[i.fitid];
       if(salvo){ Object.assign(i,salvo); return; }           // decisão já tomada antes
       if(i.destino==='cliente' && i.cliente_id){
+        (i.partes||[]).forEach((p,k)=>extDefinirParte(i,k,1));
         extDefinirMeses(i);
         // Pagamento igual já lançado no site (mesmo valor e mesma data): já vem como Ignorar
         const d=extDuplicado(i, usados);
@@ -2471,11 +2473,49 @@ async function extCarregar(texto, arquivo, decisoes){
   }catch(e){ toast('Erro ao ler extrato: '+(e.message||e),'err'); }
   area.innerHTML='<strong>Clique para selecionar</strong> ou arraste o arquivo .ofx';
 }
+// PIX dividido: "partes" são outros clientes pagos no mesmo PIX; o cliente
+// principal fica com o que sobrar do valor.
+const extSomaPartes=i=>(i.partes||[]).reduce((t,p)=>t+(Number(p.valor)||0),0);
+const extValorPrincipal=i=>Number((Math.abs(i.valor)-extSomaPartes(i)).toFixed(2));
 function extDefinirMeses(i, qtd){
   const c=_ext.clientes.find(x=>x.id===i.cliente_id);
   const disp=_ext.meses[i.cliente_id]||[];
-  if(qtd==null) qtd = c&&Number(c.valor)>0 ? Math.max(1,Math.min(12,Math.round(Math.abs(i.valor)/Number(c.valor)))) : 1;
+  if(qtd==null) qtd = c&&Number(c.valor)>0 ? Math.max(1,Math.min(12,Math.round(Math.max(0,extValorPrincipal(i))/Number(c.valor)))) : 1;
   i.qtd_meses=qtd; i.meses=disp.slice(0,qtd);
+}
+function extDefinirParte(i,k,qtd){
+  const p=i.partes[k]; const c=_ext.clientes.find(x=>x.id===p.cliente_id);
+  if(!c){ p.meses=[]; return; }
+  p.qtd_meses=qtd||p.qtd_meses||1;
+  p.meses=(_ext.meses[p.cliente_id]||[]).slice(0,p.qtd_meses);
+  if(!p.valor_manual) p.valor=Number((Number(c.valor||0)*p.qtd_meses).toFixed(2));
+}
+function extParte(idx,k,acao,valor){
+  const i=_ext.itens[idx]; i.partes=i.partes||[];
+  if(acao==='add') i.partes.push({ cliente_id:null, qtd_meses:1, meses:[], valor:0 });
+  else if(acao==='remover') i.partes.splice(k,1);
+  else if(acao==='cliente_nome'){ const c=_ext.clientes.find(x=>x.nome===valor); i.partes[k].cliente_id=c?c.id:null; i.partes[k].valor_manual=false; extDefinirParte(i,k); }
+  else if(acao==='qtd'){ extDefinirParte(i,k,parseInt(valor)||1); }
+  else if(acao==='valor'){ i.partes[k].valor=Math.abs(parseFloat(String(valor).replace(',','.'))||0); i.partes[k].valor_manual=true; }
+  extDefinirMeses(i);      // o principal se ajusta ao que sobrou
+  extMarcar(idx); extRender();
+}
+function extPartesHtml(i,idx){
+  const partes=i.partes||[];
+  const qtdSel=(v,fn)=>`<select onchange="${fn}" style="width:auto;flex:none">${Array.from({length:12},(_,k)=>`<option value="${k+1}"${k+1===v?' selected':''}>${k+1} ${k?'meses':'mês'}</option>`).join('')}</select>`;
+  const linhas=partes.map((p,k)=>{
+    const c=_ext.clientes.find(x=>x.id===p.cliente_id);
+    return `<div class="ext-parte">
+      <div class="linha"><input list="ext-dl-clientes" placeholder="Outro cliente pago neste PIX..." value="${escH(c?c.nome:'')}" onchange="extParte(${idx},${k},'cliente_nome',this.value)" style="flex:1">
+        <button class="btn btn-sm" onclick="extParte(${idx},${k},'remover')" title="Remover"><i class="ti ti-x"></i></button></div>
+      ${c?`<div class="linha">${qtdSel(p.qtd_meses,`extParte(${idx},${k},'qtd',this.value)`)}
+        <span class="ext-sub">R$</span><input type="number" step="0.01" min="0" value="${Number(p.valor||0).toFixed(2)}" onchange="extParte(${idx},${k},'valor',this.value)" style="width:80px!important;flex:none">
+        <span class="ext-sub">Vai lançar: <b>${(p.meses||[]).map(_mesCurto).join(', ')}</b> · mensal ${fmtV(c.valor)}</span></div>`:''}
+    </div>`;
+  }).join('');
+  const resto=extValorPrincipal(i);
+  const resumo=partes.length?`<span class="ext-sub" style="color:${resto>0?'var(--muted)':'var(--red)'}">PIX ${fmtV(Math.abs(i.valor))} = principal ${fmtV(resto)} + ${partes.length} outro(s) ${fmtV(extSomaPartes(i))}${resto>0?'':' — valor das partes passou do PIX'}</span>`:'';
+  return `${linhas}<div class="linha"><button class="btn btn-sm" onclick="extParte(${idx},-1,'add')"><i class="ti ti-users-plus"></i> Dividir com outro cliente</button>${resumo}</div>`;
 }
 // Procura no histórico do cliente um pagamento que pareça ser este mesmo PIX.
 // "usados" evita que dois PIX iguais casem com o mesmo registro.
@@ -2508,7 +2548,11 @@ function extHistoricoHtml(i){
 function extFalta(i){
   if(i.ja_importado) return false;
   if(!i.destino) return true;
-  if(i.destino==='cliente') return !i.cliente_id || !(i.meses||[]).length;
+  if(i.destino==='cliente'){
+    if(!i.cliente_id || !(i.meses||[]).length) return true;
+    if((i.partes||[]).some(p=>!p.cliente_id || !(p.meses||[]).length || !(Number(p.valor)>0))) return true;
+    if(extValorPrincipal(i)<=0) return true;
+  }
   return false;
 }
 const extPendente=i=>!i.ja_importado && (!i.conferido || extFalta(i));
@@ -2556,7 +2600,7 @@ function extDetalhe(i,idx){
       <input list="ext-dl-clientes" placeholder="Buscar cliente..." value="${escH(c?c.nome:'')}" onchange="extSet(${idx},'cliente_nome',this.value)">
       ${!c&&cands.length?`<div class="linha ext-sub">Pode ser: ${cands.map(x=>`<button class="btn btn-sm" onclick="extSet(${idx},'cand','${x.id}')">${escH(x.nome)}</button>`).join('')}</div>`:''}
       ${c?`<div class="linha"><select onchange="extSet(${idx},'qtd_meses',this.value)">${Array.from({length:12},(_,k)=>`<option value="${k+1}"${k+1===i.qtd_meses?' selected':''}>${k+1} ${k?'meses':'mês'}</option>`).join('')}</select>
-        <span class="ext-sub">Vai lançar: <b>${(i.meses||[]).map(_mesCurto).join(', ')}</b> · mensal ${fmtV(c.valor)}${i.sugerido&&!i.conferido?' · <span style="color:var(--amber)">sugestão pelo nome</span>':''}</span></div>${extHistoricoHtml(i)}`:''}
+        <span class="ext-sub">Vai lançar: <b>${(i.meses||[]).map(_mesCurto).join(', ')}</b>${(i.partes||[]).length?` · <b>${fmtV(extValorPrincipal(i))}</b>`:''} · mensal ${fmtV(c.valor)}${i.sugerido&&!i.conferido?' · <span style="color:var(--amber)">sugestão pelo nome</span>':''}</span></div>${extHistoricoHtml(i)}${extPartesHtml(i,idx)}`:''}
     </div>`;
   }
   if(i.destino==='receita') return `<div class="ext-det"><div class="linha">
@@ -2604,7 +2648,7 @@ function extAtualizarResumo(){
   const prontos=novos.filter(i=>i.conferido&&!extFalta(i));
   const pend=novos.filter(extPendente).length, falta=novos.filter(extFalta).length;
   const cnt=d=>prontos.filter(i=>i.destino===d).length;
-  const meses=prontos.filter(i=>i.destino==='cliente').reduce((t,i)=>t+(i.meses||[]).length,0);
+  const meses=prontos.filter(i=>i.destino==='cliente').reduce((t,i)=>t+(i.meses||[]).length+(i.partes||[]).reduce((u,p)=>u+(p.meses||[]).length,0),0);
   const ja=_ext.itens.length-novos.length;
   const pct=novos.length?Math.round(prontos.length/novos.length*100):100;
   document.getElementById('ext-info').innerHTML=`<b>${_ext.itens.length}</b> lançamentos · ${_ext.info||''}${ja?` · ${ja} já gravados`:''}
@@ -2622,7 +2666,8 @@ async function extConfirmar(){
   const env=prontos.map(i=>({
     fitid:i.fitid, data:i.data, valor:i.valor, memo:i.memo, nome:i.nome, chave:i.chave, banco:i.banco,
     destino:i.destino, cliente_id:i.cliente_id, meses:i.meses, tipo:i.tipo, servidor:i.servidor,
-    descricao:i.descricao_user||i.nome||i.descricao, meses_cobertos:i.meses_cobertos, lembrar:i.lembrar
+    descricao:i.descricao_user||i.nome||i.descricao, meses_cobertos:i.meses_cobertos, lembrar:i.lembrar,
+    partes:i.destino==='cliente'?(i.partes||[]).filter(p=>p.cliente_id).map(p=>({cliente_id:p.cliente_id, meses:p.meses, valor:Number(p.valor)})):[]
   }));
   const btn=document.getElementById('ext-btn'); btn.disabled=true; btn.innerHTML='<i class="ti ti-loader"></i> Gravando...';
   try{

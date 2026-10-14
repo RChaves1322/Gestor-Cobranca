@@ -78,8 +78,63 @@ async function gravarDespesa(op, row, id){
   }
   return { data, error };
 }
+// Apelidos: nomes de clientes que foram juntados a outro. A importação usa
+// isso para mandar os pagamentos para o cliente certo. Tolerante: se a tabela
+// ainda não existir, simplesmente não há apelidos.
+async function carregarApelidos(nomes){
+  const out={};
+  try{
+    for(let i=0;i<nomes.length;i+=100){
+      const { data, error } = await sb.from('clientes_apelidos').select('nome,cliente_id').in('nome',nomes.slice(i,i+100));
+      if(error) return out;
+      (data||[]).forEach(r=>{ out[r.nome]=r.cliente_id; });
+    }
+  }catch{}
+  return out;
+}
 function mesesCobertos(v){ const n=parseInt(v,10); return Number.isInteger(n)&&n>=1&&n<=36 ? n : 1; }
 function somarMeses(mr, n){ const [a,m]=mr.split('-').map(Number); const d=new Date(a, m-1+n, 1); return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
+
+// ── Extrato bancário (OFX) ───────────────────────────────────
+function semAcento(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+const PALAVRAS_VAZIAS=new Set(['DE','DA','DO','DAS','DOS','E','LTDA','ME','SA','S','A','EPP','EIRELI']);
+function tokensNome(n){
+  return [...new Set(semAcento(n).toUpperCase().replace(/[^A-Z ]/g,' ').split(/\s+/)
+    .filter(t=>t.length>=3 && !PALAVRAS_VAZIAS.has(t)))];
+}
+function lerOFX(txt){
+  const tag=(b,k)=>{ const m=b.match(new RegExp(`<${k}>([^<\\r\\n]*)`,'i')); return m?m[1].trim():''; };
+  const blocos=txt.match(/<STMTTRN>[\s\S]*?<\/STMTTRN>/gi)||[];
+  const org=tag(txt,'ORG');
+  const banco=/NU PAGAMENTOS/i.test(org)?'Nubank':(org||'banco');
+  const out=blocos.map(b=>{
+    const memo=tag(b,'MEMO')||tag(b,'NAME');
+    const dt=tag(b,'DTPOSTED');
+    const valor=parseFloat(tag(b,'TRNAMT').replace(',','.'))||0;
+    // Formato Nubank: "Transferência recebida pelo Pix - NOME - •••.123.456-•• - BANCO ..."
+    const partes=memo.split(' - ').map(x=>x.trim());
+    let nome='', documento='';
+    if (partes.length>=2) {
+      nome=partes[1];
+      const doc=(partes[2]||'').match(/[\d.\/-]{6,}/);
+      if (doc && /[\d]/.test(partes[2])) documento=doc[0].replace(/^[.\-]+|[.\-]+$/g,'');
+      // CNPJ costuma vir grudado no nome ("56.909.954 KARINE SANTOS")
+      nome=nome.replace(/^[\d.\/-]+\s+/,'');
+    }
+    const investimento=/aplica[cç][aã]o|resgate|RDB|CDB|poupan/i.test(memo) && !nome;
+    const chave = nome ? `${semAcento(nome).toUpperCase().replace(/\s+/g,' ')}|${documento}` : `MEMO|${semAcento(partes[0]).toUpperCase()}`;
+    return { fitid:tag(b,'FITID') || `${dt}|${valor}|${memo}`, data:`${dt.slice(0,4)}-${dt.slice(4,6)}-${dt.slice(6,8)}`,
+      valor, memo, nome, documento, chave, investimento, banco, descricao:partes[0] };
+  });
+  out.conta=tag(txt,'ACCTID'); out.periodo={ de:tag(txt,'DTSTART').slice(0,8), ate:tag(txt,'DTEND').slice(0,8) };
+  return out;
+}
+// Lê uma tabela que pode ainda não existir (migração não rodada)
+async function tabelaOpcional(t, cols, qf){
+  const r=await selectAll(t, cols, qf);
+  if (r.error) return { data:[], faltaTabela:/does not exist|relation|schema cache/i.test(r.error.message||'') , error:r.error };
+  return { data:r.data||[] };
+}
 
 // ── Router manual (sem express, roda como serverless) ────────────
 export default async function handler(req, res) {
@@ -190,6 +245,89 @@ export default async function handler(req, res) {
       return res.json(data);
     }
   }
+  // ─── JUNTAR DOIS CLIENTES ─────────────────────────────────────
+  // Move todos os registros do "secundário" para o "principal", resolve
+  // meses repetidos, guarda o nome do secundário como apelido (para próximas
+  // importações irem direto ao principal) e apaga o secundário.
+  if (url === '/clientes/mesclar' && req.method === 'POST') {
+    const { principal_id, secundario_id, simular } = body;
+    if (!principal_id || !secundario_id) return err(res,'Selecione os dois clientes');
+    if (principal_id === secundario_id) return err(res,'Selecione dois clientes diferentes');
+    const { data:cls, error:eC } = await sb.from('clientes').select('*').in('id',[principal_id,secundario_id]);
+    if (eC) return err(res, eC.message, 500);
+    const P=(cls||[]).find(c=>c.id===principal_id), S=(cls||[]).find(c=>c.id===secundario_id);
+    if (!P || !S) return err(res,'Cliente não encontrado',404);
+
+    const { data:movs, error:eM } = await selectAll('movimentos_financeiros','*',q=>q.in('cliente_id',[P.id,S.id]).order('id'));
+    if (eM) return err(res, eM.message, 500);
+    const movP=movs.filter(m=>m.cliente_id===P.id), movS=movs.filter(m=>m.cliente_id===S.id);
+    const ativo=m=>m.status!=='cancelado';
+    const aberto=m=>m.status==='pendente'||m.status==='vencido';
+    const idsP=new Set(movP.map(m=>m.id));
+
+    const apagar=new Set(), antigosRecriados=new Set(), mover=[], recriar=[];
+    let conflitosPagos=0;
+    const reId=new RegExp(`^mov_${S.id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}_(\\d{6})$`);
+    for(const m of movS){
+      const doMesP=movP.filter(x=>x.mes_ref===m.mes_ref && ativo(x) && !apagar.has(x.id));
+      if(ativo(m) && doMesP.length){
+        const pPago=doMesP.some(x=>x.status==='pago');
+        if(aberto(m)){ apagar.add(m.id); continue; }             // principal já cobre o mês
+        if(m.status==='pago' && !pPago){ doMesP.filter(aberto).forEach(x=>apagar.add(x.id)); }
+        else if(m.status==='pago' && pPago){ conflitosPagos++; }  // os dois pagos: mantém ambos
+      }
+      // Registros de importação têm ID por cliente+mês: passam para o ID do principal.
+      const mm=m.id.match(reId);
+      const novoId=mm ? `mov_${P.id}_${mm[1]}` : null;
+      if(novoId && (!idsP.has(novoId) || apagar.has(novoId))){
+        recriar.push({ ...m, id:novoId, cliente_id:P.id, cliente_nome:P.nome });
+        antigosRecriados.add(m.id); idsP.add(novoId);
+      } else mover.push(m.id);
+    }
+
+    const resumo={
+      principal:{ id:P.id, nome:P.nome }, secundario:{ id:S.id, nome:S.nome },
+      registros_movidos:mover.length+recriar.length,
+      removidos_duplicados:apagar.size,
+      meses_pagos_em_dobro:conflitosPagos
+    };
+    if (simular) return res.json({ ok:true, simulacao:true, ...resumo });
+
+    // 1) Recria com ID novo (antes de apagar o antigo, para nunca perder dado)
+    for(let i=0;i<recriar.length;i+=500){
+      const { error } = await sb.from('movimentos_financeiros').upsert(recriar.slice(i,i+500),{onConflict:'id'});
+      if (error) return err(res, `Erro ao mover registros: ${error.message}`, 500);
+    }
+    // 2) Apaga duplicados e os IDs antigos já recriados
+    const idsApagar=[...apagar, ...antigosRecriados].filter(id=>!recriar.some(r=>r.id===id));
+    for(let i=0;i<idsApagar.length;i+=200){
+      const { error } = await sb.from('movimentos_financeiros').delete().in('id',idsApagar.slice(i,i+200));
+      if (error) return err(res, `Erro ao limpar duplicados: ${error.message}`, 500);
+    }
+    // 3) Move os demais
+    for(let i=0;i<mover.length;i+=200){
+      const { error } = await sb.from('movimentos_financeiros').update({ cliente_id:P.id, cliente_nome:P.nome }).in('id',mover.slice(i,i+200));
+      if (error) return err(res, `Erro ao mover registros: ${error.message}`, 500);
+    }
+    // 4) Completa o cadastro do principal com o que faltar
+    const obsJunta=[P.obs, S.obs].map(x=>String(x||'').trim()).filter(Boolean);
+    const upd={
+      celular: P.celular || S.celular || '',
+      obs: [...new Set(obsJunta)].join(' | '),
+      status: (P.status==='ativo' || S.status==='ativo') ? 'ativo' : P.status
+    };
+    await sb.from('clientes').update(upd).eq('id',P.id);
+    // 5) Apelido: o nome do secundário passa a apontar para o principal
+    try{
+      await sb.from('clientes_apelidos').update({ cliente_id:P.id }).eq('cliente_id',S.id);
+      await sb.from('clientes_apelidos').upsert({ nome:S.nome, cliente_id:P.id, criado:new Date().toISOString() },{onConflict:'nome'});
+    }catch{}
+    // 6) Remove o secundário
+    const { error:eDel } = await sb.from('clientes').delete().eq('id',S.id);
+    if (eDel) return err(res, `Registros movidos, mas não consegui apagar o cliente secundário: ${eDel.message}`, 500);
+    return res.json({ ok:true, ...resumo });
+  }
+
   if (url.match(/^\/clientes\/[^/]+\/historico$/)) {
     const id = url.split('/')[2];
     const { data:movs, error } = await sb.from('movimentos_financeiros')
@@ -234,11 +372,19 @@ export default async function handler(req, res) {
   if (url.match(/^\/clientes\/[^/]+$/) && !url.includes('historico') && !url.includes('parcelas')) {
     const id = url.split('/')[2];
     if (req.method === 'PUT') {
-      const { nome, celular, servidor, dia, valor, status, obs } = body;
-      const { data } = await sb.from('clientes').update({
-        nome, celular:celular||'', servidor:normalizarServidor(servidor)||'',
-        dia:parseInt(dia), valor:parseFloat(valor), status, obs:obs||''
-      }).eq('id',id).select().single();
+      // Atualiza SÓ os campos enviados. Antes, "Ativar/Desativar" (que envia
+      // apenas o status) apagava celular/servidor e zerava dia/valor.
+      const upd={};
+      if (body.nome!==undefined)     upd.nome=String(body.nome).trim();
+      if (body.celular!==undefined)  upd.celular=body.celular||'';
+      if (body.servidor!==undefined) upd.servidor=normalizarServidor(body.servidor)||'';
+      if (body.dia!==undefined && !isNaN(parseInt(body.dia)))       upd.dia=parseInt(body.dia);
+      if (body.valor!==undefined && !isNaN(parseFloat(body.valor))) upd.valor=parseFloat(body.valor);
+      if (body.status!==undefined)   upd.status=body.status==='ativo'?'ativo':'inativo';
+      if (body.obs!==undefined)      upd.obs=body.obs||'';
+      if (!Object.keys(upd).length) return err(res,'Nada para atualizar');
+      const { data, error } = await sb.from('clientes').update(upd).eq('id',id).select().single();
+      if (error) return err(res, `Erro ao atualizar cliente: ${error.message}`, 500);
       return res.json(data);
     }
     if (req.method === 'DELETE') {
@@ -257,6 +403,181 @@ export default async function handler(req, res) {
     const { data } = await q;
     return res.json(data);
   }
+  // ─── IMPORTAR EXTRATO BANCÁRIO (OFX) ──────────────────────────
+  // 1) /extrato/analisar: lê o OFX, reconhece quem pagou e sugere o destino
+  //    de cada lançamento (mensalidade, receita, despesa ou ignorar).
+  // 2) /extrato/confirmar: grava o que o usuário revisou e "aprende" os nomes.
+  if (url === '/extrato/analisar' && req.method === 'POST') {
+    const lancs = lerOFX(String(body.texto||''));
+    if (!lancs.length) return err(res,'Nenhum lançamento encontrado. O arquivo é um OFX?');
+    const [pg, jaImp, cls, abertos] = await Promise.all([
+      tabelaOpcional('extrato_pagadores','*'),
+      tabelaOpcional('extrato_lancamentos','fitid', q=>q.in('fitid', lancs.map(l=>l.fitid).slice(0,1000))),
+      selectAll('clientes','id,nome,servidor,valor,dia,status'),
+      selectAll('movimentos_financeiros','id,cliente_id,mes_ref,status,valor', q=>q.in('status',['pendente','vencido','pago']).order('id'))
+    ]);
+    if (pg.faltaTabela || jaImp.faltaTabela) return err(res,'Rode o arquivo MIGRACAO_EXTRATO.sql no Supabase antes de importar extratos.');
+    const pagadores=new Map(pg.data.map(p=>[p.chave,p]));
+    const importados=new Set(jaImp.data.map(r=>r.fitid));
+    const clientes=cls.data||[];
+    const porId=new Map(clientes.map(c=>[c.id,c]));
+    const movsPorCliente=new Map();
+    for(const m of (abertos.data||[])){ if(!movsPorCliente.has(m.cliente_id)) movsPorCliente.set(m.cliente_id,[]); movsPorCliente.get(m.cliente_id).push(m); }
+    const tokensCli=clientes.map(c=>({ c, t:new Set(tokensNome(c.nome)) }));
+
+    const mesHoje=new Date().toISOString().slice(0,7);
+    const mesesSugeridos=(cid)=>{
+      // em aberto (mais antigo primeiro) e depois os próximos meses ainda não pagos
+      const ms=movsPorCliente.get(cid)||[];
+      const abertosM=ms.filter(m=>m.status!=='pago' && m.mes_ref).map(m=>m.mes_ref).sort();
+      const pagos=new Set(ms.filter(m=>m.status==='pago').map(m=>m.mes_ref));
+      const ultimo=[...pagos, ...abertosM].sort().at(-1) || somarMeses(mesHoje,-1);
+      const futuros=[]; let mr=ultimo;
+      while(futuros.length<12){ mr=somarMeses(mr,1); if(!pagos.has(mr) && !abertosM.includes(mr)) futuros.push(mr); }
+      return [...new Set([...abertosM, ...futuros])];
+    };
+    const qtdMeses=(valor,c)=>{ const v=Number(c?.valor||0); if(!v) return 1; return Math.max(1, Math.min(12, Math.round(valor/v))); };
+
+    const itens=lancs.map(l=>{
+      const it={ ...l, ja_importado:importados.has(l.fitid) };
+      const conhecido=pagadores.get(l.chave);
+      if (conhecido) {
+        it.destino=conhecido.destino; it.conhecido=true;
+        if (conhecido.destino==='cliente' && porId.has(conhecido.cliente_id)) it.cliente_id=conhecido.cliente_id;
+        else if (conhecido.destino==='cliente') { it.destino=''; it.conhecido=false; }
+        it.tipo=conhecido.tipo||''; it.servidor=conhecido.servidor||'';
+      } else if (l.investimento) {
+        it.destino='ignorar';
+      } else if (l.valor>0) {
+        // Sugere clientes pelo nome (palavras em comum com o cadastro)
+        const tk=tokensNome(l.nome);
+        const cand=tokensCli.map(({c,t})=>({ c, score:tk.filter(x=>t.has(x)).length, primeiro:t.has(tk[0]) }))
+          .filter(x=>x.score>=2 || (x.score===1 && x.primeiro && tk.length<=2))
+          .sort((a,b)=>(b.primeiro-a.primeiro) || b.score-a.score || (a.c.status==='ativo'?-1:1)).slice(0,4);
+        it.candidatos=cand.map(x=>({ id:x.c.id, nome:x.c.nome, score:x.score }));
+        // Só pré-seleciona quando é claro: primeiro nome bate (ou 3+ palavras) e sem empate
+        const top=cand[0], seg=cand[1];
+        const claro = top && (top.primeiro || top.score>=3) && (!seg || top.score>seg.score || (top.primeiro && !seg.primeiro));
+        if (claro) { it.destino='cliente'; it.cliente_id=top.c.id; it.sugerido=true; }
+        else it.destino=cand.length?'cliente':'';
+      } else {
+        it.destino='despesa';
+      }
+      if (it.cliente_id) {
+        const c=porId.get(it.cliente_id);
+        it.meses_disponiveis=mesesSugeridos(it.cliente_id);
+        it.qtd_meses=qtdMeses(l.valor,c);
+      }
+      return it;
+    });
+    // Meses sugeridos de qualquer cliente (para quando o usuário escolher outro na tela)
+    return res.json({
+      conta:lancs.conta, periodo:lancs.periodo, itens,
+      clientes:clientes.map(c=>({ id:c.id, nome:c.nome, valor:c.valor, servidor:c.servidor, status:c.status })),
+      meses_por_cliente:Object.fromEntries(clientes.map(c=>[c.id, mesesSugeridos(c.id)]))
+    });
+  }
+
+  if (url === '/extrato/confirmar' && req.method === 'POST') {
+    const itens=Array.isArray(body.itens)?body.itens:[];
+    if (!itens.length) return err(res,'Nada para importar');
+    const { data:ja, error:eJa } = await sb.from('extrato_lancamentos').select('fitid').in('fitid',itens.map(i=>i.fitid));
+    if (eJa) return err(res, /extrato_lancamentos/.test(eJa.message)?'Rode o arquivo MIGRACAO_EXTRATO.sql no Supabase.':eJa.message, 500);
+    const jaSet=new Set((ja||[]).map(r=>r.fitid));
+    const resumo={ mensalidades:0, meses:0, receitas:0, despesas:0, ignorados:0, repetidos:0, erros:[] };
+    const agora=new Date().toISOString();
+
+    for (const it of itens) {
+      if (jaSet.has(it.fitid)) { resumo.repetidos++; continue; }
+      const valor=Math.abs(Number(it.valor||0));
+      const data=String(it.data||'').slice(0,10);
+      let ref_id=null;
+      try {
+        if (it.destino==='cliente') {
+          const { data:c } = await sb.from('clientes').select('*').eq('id',it.cliente_id).single();
+          if (!c) throw new Error('cliente não encontrado');
+          const meses=(it.meses||[]).filter(Boolean);
+          if (!meses.length) throw new Error('nenhum mês escolhido');
+          const parte=Number((valor/meses.length).toFixed(2));
+          const { data:exist } = await sb.from('movimentos_financeiros').select('*').eq('cliente_id',c.id).in('mes_ref',meses).neq('status','cancelado');
+          const ids=[];
+          for (const [i,mr] of meses.entries()) {
+            const vp = i===meses.length-1 ? Number((valor-parte*(meses.length-1)).toFixed(2)) : parte;
+            const ex=(exist||[]).find(m=>m.mes_ref===mr && m.status!=='pago');
+            const obs=`Extrato ${it.banco||'banco'} – ${it.nome||''}`.trim();
+            if (ex) {
+              const { error } = await sb.from('movimentos_financeiros').update({
+                status:'pago', pago_em:data, valor_pago:vp, desconto:Math.max(0,Number(ex.valor||0)-vp),
+                obs_pagamento:obs, origem:ex.origem||'extrato' }).eq('id',ex.id);
+              if (error) throw error; ids.push(ex.id);
+            } else {
+              const jaPago=(exist||[]).some(m=>m.mes_ref===mr && m.status==='pago');
+              const [a,mm]=mr.split('-').map(Number);
+              const dia=Math.min(parseInt(c.dia)||1, diasNoMes(mm,a));
+              const idFixo=`mov_${c.id}_${a}${pad(mm)}`;
+              const id = jaPago ? uid()+'ext' : idFixo;
+              const { error } = await sb.from('movimentos_financeiros').upsert({
+                id, cliente_id:c.id, cliente_nome:c.nome, servidor:c.servidor||'', valor:Math.max(Number(c.valor||0),vp),
+                vencimento:`${mr}-${pad(dia)}`, mes_ref:mr, status:'pago', pago_em:data, valor_pago:vp,
+                desconto:Math.max(0,Number(c.valor||0)-vp), obs_pagamento:obs, tipo_movimento:'mensalidade',
+                origem:'extrato', criado:agora },{ onConflict:'id' });
+              if (error) throw error; ids.push(id);
+            }
+          }
+          ref_id=ids.join(','); resumo.mensalidades++; resumo.meses+=meses.length;
+        } else if (it.destino==='receita') {
+          const { data:r, error } = await sb.from('outras_vendas').insert({ id:uid(), data, tipo_rec:(it.tipo||'Outras Receitas').trim(),
+            cliente:(it.nome||'').trim()||'—', produto:(it.descricao||'Extrato bancário').trim(), valor_un:valor, qtde:1, total:valor,
+            mes_ref:data.slice(0,7), criado:agora }).select().single();
+          if (error) throw error; ref_id=r.id; resumo.receitas++;
+        } else if (it.destino==='despesa') {
+          const { data:r, error } = await gravarDespesa('insert',{ id:uid(), data, tipo:(it.tipo||'Outros').trim(),
+            responsavel:normalizarServidor((it.servidor||'').trim())||(it.servidor||'').trim(), descricao:(it.descricao||it.nome||'').trim(),
+            valor_un:valor, qtde:1, total:valor, mes_ref:data.slice(0,7), meses_cobertos:mesesCobertos(it.meses_cobertos), criado:agora });
+          if (error) throw error; ref_id=r?.id||null; resumo.despesas++;
+        } else if (it.destino==='ignorar') {
+          resumo.ignorados++;
+        } else continue; // sem destino: não grava nada
+
+        await sb.from('extrato_lancamentos').insert({ fitid:it.fitid, data, valor:Number(it.valor||0), memo:String(it.memo||'').slice(0,500),
+          chave:it.chave||null, destino:it.destino, ref_id, criado:agora });
+        if (it.lembrar && it.chave) {
+          await sb.from('extrato_pagadores').upsert({ chave:it.chave, nome:it.nome||'', destino:it.destino,
+            cliente_id:it.destino==='cliente'?it.cliente_id:null, tipo:it.tipo||null, servidor:(normalizarServidor((it.servidor||'').trim())||it.servidor||null), criado:agora },{ onConflict:'chave' });
+        }
+      } catch(e) {
+        resumo.erros.push({ fitid:it.fitid, nome:it.nome, mensagem:e?.message||String(e) });
+      }
+    }
+    return res.json({ ok:resumo.erros.length===0, ...resumo });
+  }
+
+  if (url === '/extrato/pagadores' && req.method === 'GET') {
+    const r=await tabelaOpcional('extrato_pagadores','*',q=>q.order('nome'));
+    return res.json(r.data||[]);
+  }
+  if (url.match(/^\/extrato\/pagadores\/.+$/) && req.method === 'DELETE') {
+    const chave=decodeURIComponent(url.split('/').slice(3).join('/'));
+    await sb.from('extrato_pagadores').delete().eq('chave',chave);
+    return res.json({ ok:true });
+  }
+
+  // ─── EXPORTAR (backup em planilha) ────────────────────────────
+  // Devolve os dados crus; a planilha .xlsx é montada no navegador.
+  if (url === '/exportar' && req.method === 'GET') {
+    const ano = String(params.ano||new Date().getFullYear());
+    if (!/^\d{4}$/.test(ano)) return err(res,'Ano inválido');
+    const todosAnos = params.todos === '1';
+    const [cl, mv, ov, dp] = await Promise.all([
+      selectAll('clientes','*',q=>q.order('nome')),
+      selectAll('movimentos_financeiros','*',q=>q.like('mes_ref',`${ano}-%`).neq('status','cancelado').order('id')),
+      selectAll('outras_vendas','*',q=>{ q=q.order('data'); return todosAnos?q:q.like('mes_ref',`${ano}-%`); }),
+      selectAll('despesas','*',q=>{ q=q.order('data'); return todosAnos?q:q.like('mes_ref',`${ano}-%`); })
+    ]);
+    for (const r of [cl,mv,ov,dp]) if (r.error) return err(res, `Erro ao exportar: ${r.error.message}`, 500);
+    return res.json({ ano:Number(ano), todosAnos, clientes:cl.data, movimentos:mv.data, receitas:ov.data, despesas:dp.data });
+  }
+
   if (url === '/cobrancas/meses') {
     const { data:movs } = await selectAll('movimentos_financeiros','mes_ref,pago_em');
     const meses = new Set();
@@ -520,6 +841,20 @@ export default async function handler(req, res) {
         // paga (Recebido = Sim) ou em aberto (Recebido = Não). Canceladas não contam.
         clientes_ref:new Set(cobsMes.filter(m=>['pago','pendente','vencido'].includes(m.status)).map(m=>m.cliente_id)).size,
         clientes_ref_pagos:new Set(cobsMes.filter(m=>m.status==='pago').map(m=>m.cliente_id)).size,
+        // Clientes ativos por servidor (mesma regra: Sim + Não do mês de referência)
+        ativos_servidor:(()=>{
+          const o={};
+          cobsMes.filter(m=>['pago','pendente','vencido'].includes(m.status)).forEach(m=>{
+            const srv=m.servidor||'Sem servidor';
+            if(!o[srv]) o[srv]={todos:new Set(),pagos:new Set()};
+            o[srv].todos.add(m.cliente_id);
+            if(m.status==='pago') o[srv].pagos.add(m.cliente_id);
+          });
+          return Object.fromEntries(Object.entries(o).map(([k,v])=>{
+            const abertos=[...v.todos].filter(id=>!v.pagos.has(id)).length;
+            return [k,{ativos:v.todos.size,pagos:v.todos.size-abertos,abertos}];
+          }));
+        })(),
         qtd_recebimentos:recebMes.length, qtd_recebimentos_sem_data:recebSemData.length
       });
     }
@@ -784,6 +1119,7 @@ export default async function handler(req, res) {
     if (!Number.isInteger(anoRef) || anoRef < 2000 || anoRef > 2100) return err(res,'Ano de referência inválido');
     const ORIGENS_IMPORTACAO=['importacao_historico','importacao_complementar_2026','importacao_planilha'];
     const hojeISO=new Date().toISOString().slice(0,10);
+    const ORIGENS_LEGADO=['importacao_historico','importacao_complementar_2026'];
     if (!texto?.trim()) return err(res,'Texto vazio');
 
     const pad2=n=>String(n).padStart(2,'0');
@@ -899,7 +1235,10 @@ export default async function handler(req, res) {
       antigos=antigos||[];
       const pagos=movimentos.filter(m=>m.status==='pago');
       const chaves=new Set(pagos.map(m=>`${m.bloco_origem}|${m.pago_em||''}`));
-      const ehAntigoSubstituido=a=>ORIGENS_IMPORTACAO.includes(a.origem) && a.status==='pago' &&
+      // Só os registros do formato ANTIGO (mes_ref = mês do pagamento) são
+      // casados por bloco + data. Os do formato novo têm ID por mês e não
+      // podem ser apagados por coincidência de data entre planilhas de anos diferentes.
+      const ehAntigoSubstituido=a=>ORIGENS_LEGADO.includes(a.origem) && a.status==='pago' &&
         chaves.has(`${a.bloco_origem}|${a.pago_em ? String(a.pago_em).slice(0,10) : ''}`);
 
       // Meses já pagos no sistema que esta importação NÃO vai substituir.
@@ -935,17 +1274,21 @@ export default async function handler(req, res) {
 
     const emPartes=(arr,n)=>{ const out=[]; for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n)); return out; };
 
-    // ── Caminho rápido: o lote inteiro em ~7 chamadas ao Supabase ──
-    // Antes eram 6 a 8 chamadas POR CLIENTE, uma após a outra.
-    const importarEmLote=async()=>{
+    // Planilha de ano anterior (ex.: 2025 importada em 2026) não altera o
+    // cadastro atual dos clientes (servidor, valor, dia, status): só traz os
+    // pagamentos. Clientes que não existirem são criados normalmente.
+    const atualizarCadastro = anoRef >= new Date().getFullYear();
+
+    // ── Caminho rápido: o lote inteiro em poucas chamadas ao Supabase ──
+    const importarEmLote=async(linhas, offset=0)=>{
       const itens=[];
-      dataLinhas.forEach((linha,i)=>{
-        try { itens.push({ ...lerLinha(linha), indice:i+1 }); }
-        catch(e){ erros.push({indice:i+1,nome:(linha.split('\t')[0]||'').trim(),mensagem:e.message}); }
+      linhas.forEach((linha,i)=>{
+        try { itens.push({ ...lerLinha(linha), indice:offset+i+1 }); }
+        catch(e){ erros.push({indice:offset+i+1,nome:(linha.split('\t')[0]||'').trim(),mensagem:e.message}); }
       });
       if(!itens.length) return;
 
-      // 1) Servidores (uma chamada)
+      // 1) Servidores
       const servidores=[...new Set(itens.map(it=>it.servidorFinal).filter(Boolean))];
       if(servidores.length){
         const { error } = await sb.from('servidores').upsert(
@@ -954,45 +1297,59 @@ export default async function handler(req, res) {
         if(error) throw error;
       }
 
-      // 2) Clientes existentes com esses nomes (uma chamada por 100 nomes)
+      // 2) Clientes: apelidos (de clientes juntados) + nome exato
       const nomes=[...new Set(itens.map(it=>it.nomeRaw))];
+      const apelidos=await carregarApelidos(nomes);          // nome -> cliente_id
       const existentes=[];
       for(const parte of emPartes(nomes,100)){
         const { data, error } = await sb.from('clientes').select('*').in('nome',parte);
         if(error) throw error;
         existentes.push(...(data||[]));
       }
+      const idsApelido=[...new Set(Object.values(apelidos))].filter(id=>!existentes.some(c=>c.id===id));
+      for(const parte of emPartes(idsApelido,100)){
+        const { data, error } = await sb.from('clientes').select('*').in('id',parte);
+        if(error) throw error;
+        existentes.push(...(data||[]));
+      }
+      const porId=new Map(existentes.map(c=>[c.id,c]));
       const porNomeServ=new Map(existentes.map(c=>[`${c.nome}|||${c.servidor||''}`,c]));
       const porNome=new Map();
       for(const c of existentes){ if(!porNome.has(c.nome)) porNome.set(c.nome,[]); porNome.get(c.nome).push(c); }
 
-      // 3) Monta clientes (novos + atualizados) e grava tudo de uma vez
-      const linhasClientes=[]; const vistos=new Map();
+      // 3) Monta clientes (novos + atualizados)
+      const gravar=new Map(); const vistos=new Map();
       for(const it of itens){
         const chave=`${it.nomeRaw}|||${it.servidorFinal}`;
-        let base=vistos.get(chave) || porNomeServ.get(chave);
+        let base=vistos.get(chave)
+          || (apelidos[it.nomeRaw] && (gravar.get(apelidos[it.nomeRaw]) || porId.get(apelidos[it.nomeRaw])))
+          || porNomeServ.get(chave);
         if(!base){
+          // Mesmo nome com outro servidor: se só existe um, é o mesmo cliente.
           const mesmos=porNome.get(it.nomeRaw)||[];
-          if(mesmos.length===1 && !(mesmos[0].servidor||'').trim()) base=mesmos[0];
+          if(mesmos.length===1) base=gravar.get(mesmos[0].id)||mesmos[0];
         }
         let cliente;
         if(base){
-          cliente={ ...base, servidor:it.servidorFinal, dia:it.dia, valor:it.valorMensal||base.valor||0, status:it.status, obs:it.obs };
+          if(atualizarCadastro){
+            cliente={ ...base, servidor:it.servidorFinal, dia:it.dia, valor:it.valorMensal||base.valor||0, status:it.status, obs:it.obs };
+            gravar.set(cliente.id,cliente);
+          } else cliente=base;
           if(!vistos.has(chave)) clientesAtualizados++;
         } else {
           cliente={ id:uid()+Math.random().toString(36).slice(2,5), nome:it.nomeRaw, celular:'', servidor:it.servidorFinal, dia:it.dia, valor:it.valorMensal||0, status:it.status, obs:it.obs, criado:new Date().toISOString() };
+          gravar.set(cliente.id,cliente);
           clientesNovos++;
         }
         vistos.set(chave,cliente);
         it.cliente=cliente;
       }
-      for(const c of vistos.values()) linhasClientes.push(c);
-      for(const parte of emPartes(linhasClientes,200)){
+      for(const parte of emPartes([...gravar.values()],200)){
         const { error } = await sb.from('clientes').upsert(parte,{onConflict:'id'});
         if(error) throw error;
       }
 
-      // 4) Movimentos atuais desses clientes (paginado)
+      // 4) Movimentos atuais desses clientes
       const ids=[...new Set(itens.map(it=>it.cliente.id))];
       const antigosPorCliente=new Map();
       for(const parte of emPartes(ids,100)){
@@ -1001,18 +1358,22 @@ export default async function handler(req, res) {
         for(const m of data){ if(!antigosPorCliente.has(m.cliente_id)) antigosPorCliente.set(m.cliente_id,[]); antigosPorCliente.get(m.cliente_id).push(m); }
       }
 
-      // 5) Planeja tudo em memória
+      // 5) Planeja em memória. Dois clientes do lote podem ser o mesmo
+      //    (apelido/nome): agrupa por cliente para a limpeza ver tudo junto.
       const todosMov=[], apagar=[], cancelar=[];
+      const porClienteLote=new Map();
       for(const it of itens){
-        const plano=planejarLimpeza(antigosPorCliente.get(it.cliente.id),montarMovimentos(it,it.cliente));
+        if(!porClienteLote.has(it.cliente.id)) porClienteLote.set(it.cliente.id,[]);
+        porClienteLote.get(it.cliente.id).push(it);
+      }
+      for(const [cid,its] of porClienteLote){
+        const movs=its.flatMap(it=>{ const ms=montarMovimentos(it,it.cliente); ms.forEach(m=>m._it=it); return ms; });
+        const plano=planejarLimpeza(antigosPorCliente.get(cid),movs);
         apagar.push(...plano.apagar); cancelar.push(...plano.cancelar);
         todosMov.push(...plano.movimentos);
-        it.movs=plano.movimentos;
+        for(const it of its) it.movs=plano.movimentos.filter(m=>m._it===it);
       }
-
-      // Mesma linha repetida na planilha geraria o mesmo ID duas vezes no
-      // mesmo upsert (erro no Postgres). Mantém a última ocorrência.
-      const movUnicos=[...new Map(todosMov.map(m=>[m.id,m])).values()];
+      const movUnicos=[...new Map(todosMov.map(m=>{ const { _it, ...limpo }=m; return [m.id,limpo]; })).values()];
 
       // 6) Grava em blocos grandes
       for(const parte of emPartes([...new Set(apagar)],200)){
@@ -1031,80 +1392,24 @@ export default async function handler(req, res) {
 
       for(const it of itens){
         contarMovimentos(it.movs);
-        processados.push({indice:it.indice,nome:it.nomeRaw,servidor:it.servidorFinal,status:it.status,recebimentos:it.movs.filter(m=>m.status==='pago').length,emAberto:it.movs.filter(m=>m.status!=='pago').length,valorRecebido:it.movs.reduce((s,m)=>s+Number(m.valor_pago||0),0)});
-      }
-    };
-
-    // ── Caminho seguro: linha a linha (usado só se o lote falhar) ──
-    const processarLinha = async (linha, numeroLinha) => {
-      try {
-        const info=lerLinha(linha);
-        const { nomeRaw, servidorFinal, valorMensal, dia, obs, status }=info;
-        if (servidorFinal) {
-          const { error:eSrv } = await sb.from('servidores').upsert(
-            { id:uid(), nome:servidorFinal, criado:new Date().toISOString() },
-            { onConflict:'nome', ignoreDuplicates:true });
-          if(eSrv) throw eSrv;
-        }
-        let clienteExist=null;
-        const buscaExata=await sb.from('clientes').select('*').eq('nome',nomeRaw).eq('servidor',servidorFinal).limit(1);
-        if(buscaExata.error) throw buscaExata.error;
-        clienteExist=buscaExata.data?.[0]||null;
-        if(!clienteExist) {
-          const buscaNome=await sb.from('clientes').select('*').eq('nome',nomeRaw).limit(2);
-          if(buscaNome.error) throw buscaNome.error;
-          if((buscaNome.data||[]).length===1 && !(buscaNome.data[0].servidor||'').trim()) clienteExist=buscaNome.data[0];
-        }
-        let cliente;
-        if(clienteExist) {
-          const { data, error:eUpd }=await sb.from('clientes').update({
-            servidor:servidorFinal, dia, valor:valorMensal||clienteExist.valor||0, status, obs
-          }).eq('id',clienteExist.id).select('*').single();
-          if(eUpd) throw eUpd;
-          cliente=data; clientesAtualizados++;
-        } else {
-          const novo={ id:uid(), nome:nomeRaw, celular:'', servidor:servidorFinal, dia, valor:valorMensal||0, status, obs, criado:new Date().toISOString() };
-          const { data, error:eIns }=await sb.from('clientes').insert(novo).select('*').single();
-          if(eIns) throw eIns;
-          cliente=data; clientesNovos++;
-        }
-
-        let movimentos=montarMovimentos(info,cliente);
-        if(movimentos.length){
-          const { data:antigos, error:eAnt } = await sb.from('movimentos_financeiros')
-            .select('id,bloco_origem,pago_em,mes_ref,status,origem').eq('cliente_id',cliente.id);
-          if(eAnt) throw eAnt;
-          const plano=planejarLimpeza(antigos,movimentos);
-          const { apagar, cancelar }=plano;
-          movimentos=plano.movimentos;
-          if(apagar.length){ const { error } = await sb.from('movimentos_financeiros').delete().in('id',apagar); if(error) throw error; }
-          if(cancelar.length){ const { error } = await sb.from('movimentos_financeiros').update({ status:'cancelado' }).in('id',cancelar); if(error) throw error; }
-          if(movimentos.length){
-            const { error:eRec }=await sb.from('movimentos_financeiros').upsert(movimentos,{onConflict:'id'});
-            if(eRec) throw eRec;
-          }
-        }
-        contarMovimentos(movimentos);
-        return {ok:true,detalhe:{indice:numeroLinha,nome:nomeRaw,servidor:servidorFinal,status,recebimentos:movimentos.filter(m=>m.status==='pago').length,emAberto:movimentos.filter(m=>m.status!=='pago').length,valorRecebido:movimentos.reduce((s,m)=>s+Number(m.valor_pago||0),0)}};
-      } catch(e) {
-        return {ok:false,erro:{indice:numeroLinha,nome:(linha.split('\t')[0]||'').trim(),mensagem:e?.message||String(e)}};
+        processados.push({indice:it.indice,nome:it.nomeRaw,cliente:it.cliente.nome,servidor:it.servidorFinal,status:it.status,recebimentos:it.movs.filter(m=>m.status==='pago').length,emAberto:it.movs.filter(m=>m.status!=='pago').length,valorRecebido:it.movs.reduce((s,m)=>s+Number(m.valor_pago||0),0)});
       }
     };
 
     let modo='lote';
     try {
-      await importarEmLote();
+      await importarEmLote(dataLinhas,0);
     } catch(eLote) {
-      // Tudo é idempotente (IDs fixos), então dá para refazer linha a linha
-      // com segurança e descobrir exatamente qual cliente tem problema.
+      // Tudo é idempotente (IDs fixos), então dá para refazer uma linha por
+      // vez com segurança e descobrir exatamente qual cliente tem problema.
       console.error('Importação em lote falhou, usando linha a linha:', eLote?.message);
       modo='linha_a_linha';
       clientesNovos=0; clientesAtualizados=0;
       totalRecebimentos=0; totalEmAberto=0; totalRecebimentosComData=0; totalRecebimentosSemData=0; totalValorRecebido=0;
       processados=[]; erros=[];
       for(let i=0;i<dataLinhas.length;i++){
-        const r=await processarLinha(dataLinhas[i],i+1);
-        if(r.ok) processados.push(r.detalhe); else erros.push(r.erro);
+        try { await importarEmLote([dataLinhas[i]],i); }
+        catch(e){ erros.push({indice:i+1,nome:(dataLinhas[i].split('\t')[0]||'').trim(),mensagem:e?.message||String(e)}); }
       }
     }
 

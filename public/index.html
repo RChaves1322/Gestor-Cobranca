@@ -191,6 +191,13 @@ tbody tr:hover td{background:var(--bg3)}
 .ext-tab select,.ext-tab input{font-size:12px;padding:4px 6px}
 .ext-tab tr.ext-ok td{opacity:.45}
 .ext-tab tr.ext-falta td:first-child{box-shadow:inset 3px 0 var(--amber)}
+.ext-tab tr.ext-conf td{background:rgba(46,204,138,.06)}
+.ext-tab tr.ext-conf td:first-child{box-shadow:inset 3px 0 var(--green)}
+.ext-ok-btn{white-space:nowrap}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap;margin-top:1rem}
+.ext-ok-btn.on{color:var(--green);border-color:var(--green)}
+.ext-prog{height:5px;background:var(--bg3);border-radius:99px;margin:6px 0 4px;overflow:hidden;max-width:420px}
+.ext-prog div{height:100%;background:var(--green);transition:width .3s}
 .ext-det{display:flex;flex-direction:column;gap:4px;min-width:260px}
 .ext-det .linha{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 .ext-sub{font-size:11px;color:var(--muted)}
@@ -918,6 +925,7 @@ tbody tr:hover td{background:var(--bg3)}
     <button class="close-btn" onclick="closeOv('ov-extrato')"><i class="ti ti-x"></i></button>
     <div class="modal-title"><i class="ti ti-building-bank" style="margin-right:6px"></i>Importar extrato bancário</div>
     <div id="ext-passo1">
+      <div id="ext-retomar" class="ext-hist" style="display:none;font-size:13px;padding:10px 12px;margin-bottom:1rem"></div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:1rem">No app do banco, exporte o extrato em <b>OFX</b> (no Nubank: Conta → Extrato → Exportar → OFX). Nada é gravado antes de você revisar. Lançamentos já importados são reconhecidos e pulados.</div>
       <div class="import-area" onclick="document.getElementById('ext-file').click()"
            ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')"
@@ -930,23 +938,26 @@ tbody tr:hover td{background:var(--bg3)}
     <div id="ext-passo2" style="display:none">
       <div class="ext-topo">
         <div id="ext-info" style="font-size:13px;color:var(--muted)"></div>
+        <button class="btn btn-sm" onclick="extConferirVisiveis()" title="Marca como conferidas as linhas desta lista que já têm destino completo"><i class="ti ti-checks"></i> OK em todas da lista</button>
         <div class="fin-visao" id="ext-filtros">
-          <button data-f="todos" class="active" onclick="extFiltro('todos')">Todos</button>
-          <button data-f="escolher" onclick="extFiltro('escolher')">A escolher</button>
-          <button data-f="entradas" onclick="extFiltro('entradas')">Entradas</button>
-          <button data-f="saidas" onclick="extFiltro('saidas')">Saídas</button>
+          <button data-f="pendentes" data-label="Pendentes" class="active" onclick="extFiltro('pendentes')">Pendentes</button>
+          <button data-f="escolher" data-label="Sem destino" onclick="extFiltro('escolher')">Sem destino</button>
+          <button data-f="conferidos" data-label="Conferidos" onclick="extFiltro('conferidos')">Conferidos</button>
+          <button data-f="todos" data-label="Todos" onclick="extFiltro('todos')">Todos</button>
         </div>
       </div>
       <div class="table-wrap" style="max-height:58vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm)">
         <table class="ext-tab"><thead><tr>
-          <th>Data</th><th>Pagador / Recebedor</th><th style="text-align:right">Valor</th><th>Destino</th><th>Detalhe</th><th title="Lembrar para as próximas importações">Lembrar</th>
+          <th>Data</th><th>Pagador / Recebedor</th><th style="text-align:right">Valor</th><th>Destino</th><th>Detalhe</th><th title="Lembrar para as próximas importações">Lembrar</th><th>Conferido</th>
         </tr></thead><tbody id="ext-body"></tbody></table>
       </div>
       <div id="ext-resumo" style="font-size:13px;margin-top:.75rem"></div>
+      <div class="ext-sub" style="margin-top:4px">Tudo o que você altera fica salvo automaticamente neste navegador. Pode fechar e continuar depois. Clique em <b>OK</b> nas linhas que já estão certas; ao mexer em uma linha ela também conta como conferida.</div>
     </div>
     <div class="modal-footer">
-      <button class="btn" onclick="closeOv('ov-extrato')">Cancelar</button>
-      <button class="btn btn-primary" id="ext-btn" onclick="extConfirmar()" style="display:none"><i class="ti ti-check"></i> Confirmar importação</button>
+      <button class="btn btn-danger" id="ext-btn-desc" onclick="extDescartarRascunho()" style="display:none;margin-right:auto" title="Apaga as conferências não gravadas"><i class="ti ti-trash"></i> Descartar rascunho</button>
+      <button class="btn" onclick="closeOv('ov-extrato')">Fechar (fica salvo)</button>
+      <button class="btn btn-primary" id="ext-btn" onclick="extConfirmar()" style="display:none"><i class="ti ti-device-floppy"></i> Gravar conferidos</button>
     </div>
   </div>
 </div>
@@ -2364,18 +2375,59 @@ async function delCliente(id){
 }
 
 /* ── IMPORTAR EXTRATO (OFX) ── */
-let _ext={itens:[],clientes:[],meses:{},hist:{},filtro:'todos',tiposR:[],tiposD:[]};
+// O que você decide em cada linha fica salvo neste navegador (rascunho) a cada
+// alteração: pode fechar a janela ou a página e continuar depois. "Gravar
+// conferidos" manda para o banco só as linhas que você já conferiu.
+let _ext={itens:[],clientes:[],meses:{},hist:{},filtro:'pendentes',snap:null,tiposR:[],tiposD:[],texto:'',arquivo:''};
+const EXT_RASCUNHO='gestorcob_extrato_rascunho';
+const EXT_CAMPOS=['destino','cliente_id','meses','qtd_meses','tipo','servidor','descricao_user','meses_cobertos','lembrar','conferido','auto_ignorado'];
 const _mesCurto=mr=>{const [a,m]=mr.split('-');return `${mesNome(parseInt(m))}/${a.slice(2)}`;};
+function extLerRascunho(){ try{ return JSON.parse(localStorage.getItem(EXT_RASCUNHO)||'null'); }catch{ return null; } }
+let _extTimer=null;
+function extSalvarRascunho(){
+  clearTimeout(_extTimer);
+  _extTimer=setTimeout(()=>{
+    if(!_ext.texto) return;
+    const decisoes={};
+    _ext.itens.forEach(i=>{ if(!i.ja_importado){ const d={}; EXT_CAMPOS.forEach(k=>{ if(i[k]!==undefined) d[k]=i[k]; }); decisoes[i.fitid]=d; } });
+    try{
+      localStorage.setItem(EXT_RASCUNHO, JSON.stringify({ texto:_ext.texto, arquivo:_ext.arquivo, salvo_em:new Date().toISOString(), decisoes }));
+      const el=document.getElementById('ext-salvo'); if(el) el.textContent='Rascunho salvo '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    }catch(e){ console.warn('Não consegui salvar o rascunho do extrato',e); }
+  },300);
+}
+function extDescartarRascunho(){
+  if(!confirm('Descartar o que você já conferiu neste extrato? (O que já foi gravado no sistema continua gravado.)')) return;
+  localStorage.removeItem(EXT_RASCUNHO); _ext.texto=''; abrirExtrato();
+}
 function abrirExtrato(){
   document.getElementById('ext-passo1').style.display='';
   document.getElementById('ext-passo2').style.display='none';
   document.getElementById('ext-btn').style.display='none';
+  document.getElementById('ext-btn-desc').style.display='none';
   document.getElementById('ext-file').value='';
+  const r=extLerRascunho(), box=document.getElementById('ext-retomar');
+  if(r && r.texto){
+    const d=Object.values(r.decisoes||{}); const conf=d.filter(x=>x.conferido).length;
+    box.style.display='';
+    box.innerHTML=`<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <i class="ti ti-history" style="font-size:20px;color:var(--accent)"></i>
+      <div style="flex:1;min-width:220px"><b>Você tem uma importação em andamento</b>${r.arquivo?` (${escH(r.arquivo)})`:''}<br>
+      <span class="ext-sub">Salva em ${new Date(r.salvo_em).toLocaleString('pt-BR')} · ${conf} de ${d.length} lançamento(s) conferido(s)</span></div>
+      <button class="btn btn-primary" onclick="extRetomar()"><i class="ti ti-player-play"></i> Continuar</button>
+      <button class="btn btn-danger" onclick="extDescartarRascunho()"><i class="ti ti-trash"></i> Descartar</button></div>`;
+  } else box.style.display='none';
   openOv('ov-extrato');
 }
+async function extRetomar(){ const r=extLerRascunho(); if(r&&r.texto) await extCarregar(r.texto, r.arquivo, r.decisoes||{}); }
 async function extLerArquivo(f){
   if(!f) return;
   const texto=await f.text();
+  // Mesmo extrato (ou com lançamentos em comum): reaproveita o que já foi conferido
+  const r=extLerRascunho();
+  await extCarregar(texto, f.name, (r&&r.decisoes)||{});
+}
+async function extCarregar(texto, arquivo, decisoes){
   const area=document.querySelector('#ext-passo1 .import-area p');
   area.innerHTML='<i class="ti ti-loader"></i> Lendo extrato...';
   try{
@@ -2383,27 +2435,31 @@ async function extLerArquivo(f){
       api('POST','/api/extrato/analisar',{texto}),
       api('GET','/api/tipos-receita').catch(()=>[]), api('GET','/api/tipos-despesa').catch(()=>[]), api('GET','/api/servidores').catch(()=>[])
     ]);
-    _ext={ itens:r.itens.map(i=>({...i, lembrar:!!i.nome, meses_cobertos:1})), clientes:r.clientes, meses:r.meses_por_cliente, hist:r.historico_por_cliente||{}, filtro:'todos',
-      tiposR:(tr||[]).map(t=>t.nome), tiposD:(td||[]).map(t=>t.nome) };
+    _ext={ itens:r.itens.map(i=>({...i, lembrar:!!i.nome, meses_cobertos:1})), clientes:r.clientes, meses:r.meses_por_cliente, hist:r.historico_por_cliente||{},
+      filtro:'pendentes', snap:null, tiposR:(tr||[]).map(t=>t.nome), tiposD:(td||[]).map(t=>t.nome), texto, arquivo };
     const usados=new Set();
     _ext.itens.forEach(i=>{
+      if(i.ja_importado) return;
+      const salvo=decisoes[i.fitid];
+      if(salvo){ Object.assign(i,salvo); return; }           // decisão já tomada antes
       if(i.destino==='cliente' && i.cliente_id){
         extDefinirMeses(i);
         // Pagamento igual já lançado no site (mesmo valor e mesma data): já vem como Ignorar
         const d=extDuplicado(i, usados);
         if(d && !d.parcial) i.dup=d;
-        if(d && d.exato && !i.ja_importado){ i.destino='ignorar'; i.auto_ignorado=true; i.lembrar=false; }
+        if(d && d.exato){ i.destino='ignorar'; i.auto_ignorado=true; i.lembrar=false; }
       }
     });
     document.getElementById('ext-dl-clientes').innerHTML=r.clientes.map(c=>`<option value="${escH(c.nome)}">`).join('');
     document.getElementById('ext-dl-servidores').innerHTML=(sv||[]).map(x=>`<option value="${escH(x.nome)}">`).join('');
     const p=r.periodo||{}; const fd=d=>d?`${d.slice(6,8)}/${d.slice(4,6)}/${d.slice(0,4)}`:'';
-    const ja=r.itens.filter(i=>i.ja_importado).length;
-    document.getElementById('ext-info').innerHTML=`<b>${r.itens.length}</b> lançamentos · ${fd(p.de)} a ${fd(p.ate)}${ja?` · ${ja} já importados antes`:''}`;
+    _ext.info=`${fd(p.de)} a ${fd(p.ate)}`;
     document.getElementById('ext-passo1').style.display='none';
     document.getElementById('ext-passo2').style.display='';
     document.getElementById('ext-btn').style.display='';
-    extRender();
+    document.getElementById('ext-btn-desc').style.display='';
+    extFiltro('pendentes');
+    extSalvarRascunho();
   }catch(e){ toast('Erro ao ler extrato: '+(e.message||e),'err'); }
   area.innerHTML='<strong>Clique para selecionar</strong> ou arraste o arquivo .ofx';
 }
@@ -2447,7 +2503,27 @@ function extFalta(i){
   if(i.destino==='cliente') return !i.cliente_id || !(i.meses||[]).length;
   return false;
 }
-function extFiltro(f){ _ext.filtro=f; document.querySelectorAll('#ext-filtros button').forEach(b=>b.classList.toggle('active',b.dataset.f===f)); extRender(); }
+const extPendente=i=>!i.ja_importado && (!i.conferido || extFalta(i));
+function extFiltro(f){
+  _ext.filtro=f;
+  document.querySelectorAll('#ext-filtros button').forEach(b=>b.classList.toggle('active',b.dataset.f===f));
+  // A lista fica "congelada" até clicar de novo no filtro: assim a linha que
+  // você acabou de conferir não some da tela enquanto você mexe.
+  const ok={ pendentes:extPendente, escolher:i=>!i.ja_importado&&extFalta(i), conferidos:i=>!i.ja_importado&&i.conferido&&!extFalta(i), todos:()=>true }[f]||(()=>true);
+  _ext.snap=_ext.itens.map((i,idx)=>ok(i)?idx:-1).filter(x=>x>=0);
+  extRender();
+  const w=document.querySelector('#ext-passo2 .table-wrap'); if(w) w.scrollTop=0;
+}
+function extConferirVisiveis(){
+  const alvo=(_ext.snap||[]).filter(k=>{ const i=_ext.itens[k]; return !i.ja_importado && !i.conferido && !extFalta(i); });
+  if(!alvo.length){ toast('Nenhuma linha pronta para conferir nesta lista','err'); return; }
+  if(!confirm(`Marcar ${alvo.length} linha(s) desta lista como conferidas? Linhas sem destino ou sem cliente ficam de fora.`)) return;
+  alvo.forEach(k=>{ _ext.itens[k].conferido=true; });
+  extSalvarRascunho(); extRender();
+}
+function extMarcar(idx){ const i=_ext.itens[idx]; i.conferido=true; extSalvarRascunho(); }
+// Campo de texto/número: grava sem redesenhar (não perde o foco)
+function extCampo(idx,campo,valor){ _ext.itens[idx][campo]=valor; extMarcar(idx); extAtualizarResumo(); const tr=document.getElementById('ext-tr-'+idx); if(tr) tr.className=extClasse(_ext.itens[idx]); }
 function extSet(idx,campo,valor){
   const i=_ext.itens[idx];
   if(campo==='cliente_nome'){
@@ -2456,11 +2532,14 @@ function extSet(idx,campo,valor){
     if(c) extDefinirMeses(i); else i.meses=[];
   } else if(campo==='qtd_meses'){ extDefinirMeses(i, parseInt(valor)||1); }
   else if(campo==='cand'){ i.cliente_id=valor; i.sugerido=false; i.dup=undefined; extDefinirMeses(i); }
-  else { i[campo]=valor; if(campo==='destino' && valor==='cliente' && i.cliente_id) extDefinirMeses(i); }
+  else if(campo==='conferir'){ /* só marca como conferido */ }
+  else if(campo==='desconferir'){ i.conferido=false; extSalvarRascunho(); extRender(); return; }
+  else { i[campo]=valor; if(campo==='destino'){ i.auto_ignorado=false; if(valor==='cliente' && i.cliente_id) extDefinirMeses(i); } }
+  extMarcar(idx);
   extRender();
 }
 function extDetalhe(i,idx){
-  if(i.ja_importado) return '<span class="ext-sub">Já importado anteriormente</span>';
+  if(i.ja_importado) return '<span class="ext-sub">Já gravado no sistema</span>';
   const opt=(lista,v)=>['',...lista].map(t=>`<option value="${escH(t)}"${t===v?' selected':''}>${escH(t||'— tipo —')}</option>`).join('');
   if(i.destino==='cliente'){
     const c=_ext.clientes.find(x=>x.id===i.cliente_id);
@@ -2469,25 +2548,32 @@ function extDetalhe(i,idx){
       <input list="ext-dl-clientes" placeholder="Buscar cliente..." value="${escH(c?c.nome:'')}" onchange="extSet(${idx},'cliente_nome',this.value)">
       ${!c&&cands.length?`<div class="linha ext-sub">Pode ser: ${cands.map(x=>`<button class="btn btn-sm" onclick="extSet(${idx},'cand','${x.id}')">${escH(x.nome)}</button>`).join('')}</div>`:''}
       ${c?`<div class="linha"><select onchange="extSet(${idx},'qtd_meses',this.value)">${Array.from({length:12},(_,k)=>`<option value="${k+1}"${k+1===i.qtd_meses?' selected':''}>${k+1} ${k?'meses':'mês'}</option>`).join('')}</select>
-        <span class="ext-sub">Vai lançar: <b>${(i.meses||[]).map(_mesCurto).join(', ')}</b> · mensal ${fmtV(c.valor)}${i.sugerido?' · <span style="color:var(--amber)">sugestão pelo nome</span>':''}</span></div>${extHistoricoHtml(i)}`:''}
+        <span class="ext-sub">Vai lançar: <b>${(i.meses||[]).map(_mesCurto).join(', ')}</b> · mensal ${fmtV(c.valor)}${i.sugerido&&!i.conferido?' · <span style="color:var(--amber)">sugestão pelo nome</span>':''}</span></div>${extHistoricoHtml(i)}`:''}
     </div>`;
   }
   if(i.destino==='receita') return `<div class="ext-det"><div class="linha">
       <select onchange="extSet(${idx},'tipo',this.value)">${opt(_ext.tiposR,i.tipo)}</select>
-      <input placeholder="Descrição (ex.: Fire Stick)" value="${escH(i.descricao_user||'')}" onchange="_ext.itens[${idx}].descricao_user=this.value"></div></div>`;
+      <input placeholder="Descrição (ex.: Fire Stick)" value="${escH(i.descricao_user||'')}" onchange="extCampo(${idx},'descricao_user',this.value)"></div></div>`;
   if(i.destino==='despesa') return `<div class="ext-det"><div class="linha">
       <select onchange="extSet(${idx},'tipo',this.value)">${opt(_ext.tiposD,i.tipo)}</select>
-      <input list="ext-dl-servidores" placeholder="Servidor / responsável" value="${escH(i.servidor||'')}" onchange="_ext.itens[${idx}].servidor=this.value" style="width:130px">
-      <input type="number" min="1" max="36" value="${i.meses_cobertos||1}" title="Cobre quantos meses" onchange="_ext.itens[${idx}].meses_cobertos=this.value" style="width:52px"><span class="ext-sub">mês(es)</span></div></div>`;
+      <input list="ext-dl-servidores" placeholder="Servidor / responsável" value="${escH(i.servidor||'')}" onchange="extCampo(${idx},'servidor',this.value)" style="width:130px">
+      <input type="number" min="1" max="36" value="${i.meses_cobertos||1}" title="Cobre quantos meses" onchange="extCampo(${idx},'meses_cobertos',this.value)" style="width:52px"><span class="ext-sub">mês(es)</span></div></div>`;
   if(i.destino==='ignorar') return i.cliente_id
-      ? `<div class="ext-det"><span class="ext-sub">Não será lançado · ${escH((_ext.clientes.find(x=>x.id===i.cliente_id)||{}).nome||'')}</span>${extHistoricoHtml(i)}${i.auto_ignorado?`<div><button class="btn btn-sm" onclick="_ext.itens[${idx}].auto_ignorado=false;extSet(${idx},'destino','cliente')">É um pagamento novo — lançar</button></div>`:''}</div>`
+      ? `<div class="ext-det"><span class="ext-sub">Não será lançado · ${escH((_ext.clientes.find(x=>x.id===i.cliente_id)||{}).nome||'')}</span>${extHistoricoHtml(i)}${i.auto_ignorado?`<div><button class="btn btn-sm" onclick="extSet(${idx},'destino','cliente')">É um pagamento novo — lançar</button></div>`:''}</div>`
       : '<span class="ext-sub">Não será lançado</span>';
   return '<span class="ext-sub" style="color:var(--amber)">Escolha o destino</span>';
 }
+const extClasse=i=>i.ja_importado?'ext-ok':extFalta(i)?'ext-falta':i.conferido?'ext-conf':'';
+function extAcao(i,idx){
+  if(i.ja_importado) return '<span class="ext-sub">gravado</span>';
+  if(extFalta(i)) return '<span class="ext-sub" style="color:var(--amber)">falta</span>';
+  return i.conferido
+    ? `<button class="btn btn-sm ext-ok-btn on" onclick="extSet(${idx},'desconferir')" title="Conferido — clique para desfazer"><i class="ti ti-circle-check"></i></button>`
+    : `<button class="btn btn-sm ext-ok-btn" onclick="extSet(${idx},'conferir')" title="Está certo — marcar como conferido"><i class="ti ti-check"></i> OK</button>`;
+}
 function extRender(){
-  const f=_ext.filtro;
-  const vis=_ext.itens.map((i,idx)=>({i,idx})).filter(({i})=>f==='todos'||(f==='escolher'&&extFalta(i))||(f==='entradas'&&i.valor>0)||(f==='saidas'&&i.valor<0));
-  document.getElementById('ext-body').innerHTML=vis.map(({i,idx})=>`<tr class="${i.ja_importado?'ext-ok':extFalta(i)?'ext-falta':''}">
+  const vis=(_ext.snap||[]).map(idx=>({i:_ext.itens[idx],idx}));
+  document.getElementById('ext-body').innerHTML=vis.map(({i,idx})=>`<tr id="ext-tr-${idx}" class="${extClasse(i)}">
     <td style="white-space:nowrap">${fmtD(i.data)}</td>
     <td title="${escH(i.memo)}"><div style="font-weight:600">${escH(i.nome||i.descricao)}</div><div class="ext-sub">${escH(i.nome?i.descricao:'')}${i.conhecido?' · <span style="color:var(--green)">reconhecido</span>':''}</div></td>
     <td style="text-align:right;font-weight:700;color:${i.valor>=0?'var(--green)':'var(--red)'};white-space:nowrap">${fmtV(i.valor)}</td>
@@ -2498,23 +2584,36 @@ function extRender(){
       <option value="despesa"${i.destino==='despesa'?' selected':''}>Despesa</option>
       <option value="ignorar"${i.destino==='ignorar'?' selected':''}>Ignorar</option></select>`}</td>
     <td>${extDetalhe(i,idx)}</td>
-    <td style="text-align:center">${i.ja_importado||!i.nome?'':`<input type="checkbox" ${i.lembrar?'checked':''} onchange="_ext.itens[${idx}].lembrar=this.checked" style="width:16px;height:16px">`}</td>
-  </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:1rem">Nada neste filtro.</td></tr>';
+    <td style="text-align:center">${i.ja_importado||!i.nome?'':`<input type="checkbox" ${i.lembrar?'checked':''} onchange="extCampo(${idx},'lembrar',this.checked)" style="width:16px;height:16px">`}</td>
+    <td style="text-align:center">${extAcao(i,idx)}</td>
+  </tr>`).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:1.5rem">${_ext.filtro==='pendentes'?'<i class="ti ti-circle-check" style="color:var(--green)"></i> Tudo conferido! Clique em <b>Gravar conferidos</b>.':'Nada neste filtro.'}</td></tr>`;
+  extAtualizarResumo();
+}
+function extAtualizarResumo(){
   const novos=_ext.itens.filter(i=>!i.ja_importado);
-  const falta=novos.filter(extFalta).length;
-  const cnt=d=>novos.filter(i=>i.destino===d&&!extFalta(i)).length;
-  const meses=novos.filter(i=>i.destino==='cliente'&&!extFalta(i)).reduce((t,i)=>t+(i.meses||[]).length,0);
-  document.getElementById('ext-resumo').innerHTML=`<b>${cnt('cliente')}</b> pagamento(s) de cliente (${meses} mês(es)) · <b>${cnt('receita')}</b> receita(s) · <b>${cnt('despesa')}</b> despesa(s) · <b>${cnt('ignorar')}</b> ignorado(s)${falta?` · <span style="color:var(--amber)"><b>${falta}</b> sem destino (não serão gravados)</span>`:''}`;
+  const prontos=novos.filter(i=>i.conferido&&!extFalta(i));
+  const pend=novos.filter(extPendente).length, falta=novos.filter(extFalta).length;
+  const cnt=d=>prontos.filter(i=>i.destino===d).length;
+  const meses=prontos.filter(i=>i.destino==='cliente').reduce((t,i)=>t+(i.meses||[]).length,0);
+  const ja=_ext.itens.length-novos.length;
+  const pct=novos.length?Math.round(prontos.length/novos.length*100):100;
+  document.getElementById('ext-info').innerHTML=`<b>${_ext.itens.length}</b> lançamentos · ${_ext.info||''}${ja?` · ${ja} já gravados`:''}
+    <div class="ext-prog"><div style="width:${pct}%"></div></div>
+    <span><b style="color:var(--green)">${prontos.length}</b> conferidos · <b style="color:var(--amber)">${pend}</b> pendentes${falta?` (${falta} sem destino)`:''} · <span id="ext-salvo" class="ext-sub"></span></span>`;
+  const cont={pendentes:pend, escolher:falta, conferidos:prontos.length, todos:_ext.itens.length};
+  document.querySelectorAll('#ext-filtros button').forEach(b=>{ const n=cont[b.dataset.f]; b.textContent=`${b.dataset.label} (${n})`; });
+  document.getElementById('ext-resumo').innerHTML=`Para gravar: <b>${cnt('cliente')}</b> pagamento(s) de cliente (${meses} mês(es)) · <b>${cnt('receita')}</b> receita(s) · <b>${cnt('despesa')}</b> despesa(s) · <b>${cnt('ignorar')}</b> ignorado(s)`;
+  const btn=document.getElementById('ext-btn');
+  btn.innerHTML=`<i class="ti ti-device-floppy"></i> Gravar conferidos (${prontos.length})`; btn.disabled=!prontos.length;
 }
 async function extConfirmar(){
-  const env=_ext.itens.filter(i=>!i.ja_importado && !extFalta(i)).map(i=>({
+  const prontos=_ext.itens.filter(i=>!i.ja_importado && i.conferido && !extFalta(i));
+  if(!prontos.length){ toast('Confira pelo menos um lançamento (botão OK ou alterando a linha)','err'); return; }
+  const env=prontos.map(i=>({
     fitid:i.fitid, data:i.data, valor:i.valor, memo:i.memo, nome:i.nome, chave:i.chave, banco:i.banco,
     destino:i.destino, cliente_id:i.cliente_id, meses:i.meses, tipo:i.tipo, servidor:i.servidor,
     descricao:i.descricao_user||i.nome||i.descricao, meses_cobertos:i.meses_cobertos, lembrar:i.lembrar
   }));
-  if(!env.length){ toast('Nenhum lançamento com destino definido','err'); return; }
-  const falta=_ext.itens.filter(i=>!i.ja_importado && extFalta(i)).length;
-  if(falta && !confirm(`${falta} lançamento(s) ainda sem destino ficarão de fora. Continuar?`)) return;
   const btn=document.getElementById('ext-btn'); btn.disabled=true; btn.innerHTML='<i class="ti ti-loader"></i> Gravando...';
   try{
     const tot={mensalidades:0,meses:0,receitas:0,despesas:0,ignorados:0,repetidos:0,erros:[]};
@@ -2523,12 +2622,16 @@ async function extConfirmar(){
       for(const c of ['mensalidades','meses','receitas','despesas','ignorados','repetidos']) tot[c]+=r[c]||0;
       tot.erros.push(...(r.erros||[]));
     }
-    toast(`Extrato importado: ${tot.mensalidades} pagamento(s) (${tot.meses} mês(es)), ${tot.receitas} receita(s), ${tot.despesas} despesa(s).${tot.erros.length?` ${tot.erros.length} com erro.`:''}`, tot.erros.length?'err':'ok');
+    toast(`Gravado: ${tot.mensalidades} pagamento(s) (${tot.meses} mês(es)), ${tot.receitas} receita(s), ${tot.despesas} despesa(s), ${tot.ignorados} ignorado(s).${tot.erros.length?` ${tot.erros.length} com erro.`:''}`, tot.erros.length?'err':'ok');
     if(tot.erros.length) console.warn('Erros do extrato:',tot.erros);
-    closeOv('ov-extrato');
+    // Recarrega do servidor: o que foi gravado vira "já gravado" e o histórico
+    // dos clientes é atualizado; o que ficou pendente continua como estava.
+    const decisoes={}; _ext.itens.forEach(i=>{ const d={}; EXT_CAMPOS.forEach(k=>{ if(i[k]!==undefined) d[k]=i[k]; }); decisoes[i.fitid]=d; });
+    await extCarregar(_ext.texto, _ext.arquivo, decisoes);
+    const restam=_ext.itens.filter(i=>!i.ja_importado).length;
+    if(!restam){ localStorage.removeItem(EXT_RASCUNHO); toast('Extrato concluído: todos os lançamentos foram gravados.'); closeOv('ov-extrato'); }
     if(currentPage==='cobrancas') renderCobs(); else if(currentPage==='financeiro') renderFinanceiro();
-  }catch(e){ toast('Erro ao gravar: '+(e.message||e),'err'); }
-  btn.disabled=false; btn.innerHTML='<i class="ti ti-check"></i> Confirmar importação';
+  }catch(e){ toast('Erro ao gravar: '+(e.message||e),'err'); extAtualizarResumo(); }
 }
 
 /* ── EXPORTAR PLANILHA ── */

@@ -414,7 +414,7 @@ export default async function handler(req, res) {
       tabelaOpcional('extrato_pagadores','*'),
       tabelaOpcional('extrato_lancamentos','fitid', q=>q.in('fitid', lancs.map(l=>l.fitid).slice(0,1000))),
       selectAll('clientes','id,nome,servidor,valor,dia,status'),
-      selectAll('movimentos_financeiros','id,cliente_id,mes_ref,status,valor', q=>q.in('status',['pendente','vencido','pago']).order('id'))
+      selectAll('movimentos_financeiros','id,cliente_id,mes_ref,status,valor,valor_pago,pago_em,origem', q=>q.in('status',['pendente','vencido','pago']).order('id'))
     ]);
     if (pg.faltaTabela || jaImp.faltaTabela) return err(res,'Rode o arquivo MIGRACAO_EXTRATO.sql no Supabase antes de importar extratos.');
     const pagadores=new Map(pg.data.map(p=>[p.chave,p]));
@@ -474,7 +474,11 @@ export default async function handler(req, res) {
     return res.json({
       conta:lancs.conta, periodo:lancs.periodo, itens,
       clientes:clientes.map(c=>({ id:c.id, nome:c.nome, valor:c.valor, servidor:c.servidor, status:c.status })),
-      meses_por_cliente:Object.fromEntries(clientes.map(c=>[c.id, mesesSugeridos(c.id)]))
+      meses_por_cliente:Object.fromEntries(clientes.map(c=>[c.id, mesesSugeridos(c.id)])),
+      // Últimos meses pagos de cada cliente: para conferir se o PIX já foi lançado
+      historico_por_cliente:Object.fromEntries([...movsPorCliente].map(([cid,ms])=>[cid,
+        ms.filter(m=>m.status==='pago').sort((a,b)=>String(b.mes_ref).localeCompare(String(a.mes_ref))).slice(0,8)
+          .map(m=>({ mes_ref:m.mes_ref, pago_em:m.pago_em?String(m.pago_em).slice(0,10):null, valor_pago:Number(m.valor_pago||0), origem:m.origem||'' }))]))
     });
   }
 

@@ -788,6 +788,18 @@ tbody tr:hover td{background:var(--bg3)}
       </div>
 
       <div class="card">
+        <div class="card-header"><span class="card-title"><i class="ti ti-device-tv" style="margin-right:6px;color:var(--accent)"></i>Apps</span></div>
+        <div class="card-body">
+          <div class="add-servidor">
+            <input type="text" id="novo-app" placeholder="Nome do app (ex: IBO Player, Clouddy...)" onkeydown="if(event.key==='Enter')addApp()">
+            <select id="novo-app-cred" style="max-width:190px"><option value="mac_key">Acesso por MAC e Key</option><option value="email_senha">Acesso por E-mail e Senha</option></select>
+            <button class="btn btn-primary" onclick="addApp()"><i class="ti ti-plus"></i> Adicionar</button>
+          </div>
+          <div id="lista-apps" class="servidor-tags"><div style="color:var(--muted);font-size:13px">Carregando...</div></div>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="card-header"><span class="card-title"><i class="ti ti-cash" style="margin-right:6px;color:var(--green)"></i>Tipos de Receita</span></div>
         <div class="card-body">
           <div class="add-servidor">
@@ -897,6 +909,12 @@ tbody tr:hover td{background:var(--bg3)}
         <div class="form-hint">Deixe vazio para cobrar no mesmo dia do vencimento.</div></div>
       <div class="form-group"><label class="form-label">Valor (R$) *</label><input id="f-valor" type="number" step="0.01" placeholder="0,00"></div>
       <div class="form-group"><label class="form-label">Status</label><select id="f-status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></div>
+      <div class="form-group full"><label class="form-label">App</label>
+        <select id="f-app" onchange="atualizarCamposApp()"><option value="">Nenhum / não informado</option></select></div>
+      <div class="form-group" id="fg-app-login" style="display:none"><label class="form-label" id="lb-app-login">MAC</label><input id="f-app-login" autocomplete="off" spellcheck="false"></div>
+      <div class="form-group" id="fg-app-senha" style="display:none"><label class="form-label" id="lb-app-senha">Key</label>
+        <div style="display:flex;gap:4px"><input id="f-app-senha" type="password" autocomplete="new-password" spellcheck="false" style="flex:1">
+        <button type="button" class="btn btn-sm" onclick="const i=document.getElementById('f-app-senha');i.type=i.type==='password'?'text':'password'" title="Mostrar/ocultar"><i class="ti ti-eye"></i></button></div></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="f-obs" placeholder="Opcional"></div>
     </div>
     <div class="form-actions">
@@ -1677,7 +1695,7 @@ async function renderClientes(){
           <th>Nome</th><th>Celular</th><th>Servidor</th>
           <th>Venc.</th><th>Valor</th><th>Status</th><th></th>
         </tr></thead><tbody>${lista.map(c=>`<tr>
-          <td style="font-weight:600">${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span></td>
+          <td style="font-weight:600">${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span>${c.app?`<div class="ext-sub" style="font-weight:400" title="${escH(c.app_login||'')}"><i class="ti ti-device-tv"></i> ${escH(c.app)}${c.app_login?` · ${escH(c.app_login)}`:''}</div>`:''}</td>
           <td data-label="Celular">${c.celular||'—'}</td>
           <td data-label="Servidor">${c.servidor||'—'}</td>
           <td data-label="Venc.">Dia ${c.dia}${c.dia_cobranca&&c.dia_cobranca!==c.dia?`<div class="ext-sub" title="Dia de cobrança">cobra dia ${c.dia_cobranca}</div>`:''}</td>
@@ -2206,6 +2224,19 @@ function limparFiltroFin(){
 /* ── CADASTROS ── */
 async function renderCadastros(){
   try{
+    const apps=await api('GET','/api/apps');
+    document.getElementById('lista-apps').innerHTML=apps.length===0
+      ?'<div style="color:var(--muted);font-size:13px">Nenhum app cadastrado. (Se acabou de atualizar, rode o MIGRACAO_APPS.sql no Supabase.)</div>'
+      :apps.map(a=>`
+        <div class="servidor-tag">
+          <span>${escH(a.nome)}</span>
+          <button onclick="alternarCredApp('${a.id}','${a.credencial}')" class="badge" style="cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--muted);font-size:10px" title="Clique para trocar">${a.credencial==='email_senha'?'E-mail/Senha':'MAC/Key'}</button>
+          <button onclick="editarApp('${a.id}','${esc(a.nome)}')" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0 2px" title="Editar"><i class="ti ti-edit" style="font-size:13px"></i></button>
+          <button onclick="delApp('${a.id}')" style="background:none;border:none;cursor:pointer;color:var(--red);padding:0 2px" title="Excluir"><i class="ti ti-x" style="font-size:13px"></i></button>
+        </div>`).join('');
+  }catch(e){toast('Erro ao carregar apps','err');}
+
+  try{
     const serv=await api('GET','/api/servidores');
     document.getElementById('lista-servidores').innerHTML=serv.length===0
       ?'<div style="color:var(--muted);font-size:13px">Nenhum servidor cadastrado.</div>'
@@ -2240,6 +2271,28 @@ async function renderCadastros(){
           <button onclick="delTipoDespesa('${t.id}')" style="background:none;border:none;cursor:pointer;color:var(--red);padding:0 2px" title="Excluir"><i class="ti ti-x" style="font-size:13px"></i></button>
         </div>`).join('');
   }catch(e){toast('Erro ao carregar tipos de despesa','err');}
+}
+
+/* Apps */
+async function addApp(){
+  const el=document.getElementById('novo-app'); const nome=el.value.trim();
+  if(!nome){toast('Informe o nome do app','err');return;}
+  try{ await api('POST','/api/apps',{nome,credencial:document.getElementById('novo-app-cred').value}); el.value=''; toast('App adicionado!'); renderCadastros(); }
+  catch(e){ toast(String(e.message||'').includes('MIGRACAO')?'Rode o MIGRACAO_APPS.sql no Supabase':'App já existe','err'); }
+}
+async function editarApp(id,nomeAtual){
+  const nome=prompt('Novo nome do app (os clientes que usam este app são atualizados):',nomeAtual);
+  if(!nome||nome.trim()===nomeAtual) return;
+  try{ await api('PUT',`/api/apps/${id}`,{nome:nome.trim()}); toast('App atualizado!'); renderCadastros(); }catch{ toast('Erro ao editar','err'); }
+}
+async function alternarCredApp(id,atual){
+  const nova=atual==='email_senha'?'mac_key':'email_senha';
+  if(!confirm(`Trocar o acesso deste app para ${nova==='email_senha'?'E-mail e Senha':'MAC e Key'}?`)) return;
+  try{ await api('PUT',`/api/apps/${id}`,{credencial:nova}); renderCadastros(); }catch{ toast('Erro ao alterar','err'); }
+}
+async function delApp(id){
+  if(!confirm('Excluir este app? Os clientes que usam ele mantêm o nome gravado.')) return;
+  try{ await api('DELETE',`/api/apps/${id}`); renderCadastros(); }catch{ toast('Erro ao excluir','err'); }
 }
 
 /* Tipos de Receita */
@@ -2350,6 +2403,13 @@ async function openClienteModal(id){
     }
   }catch(e){ console.error('Erro ao carregar servidores',e); }
 
+  // Apps pré-cadastrados
+  try{
+    _appsCache=await api('GET','/api/apps');
+    document.getElementById('f-app').innerHTML='<option value="">Nenhum / não informado</option>'+
+      _appsCache.map(a=>`<option value="${escH(a.nome)}">${escH(a.nome)}</option>`).join('');
+  }catch{ _appsCache=[]; }
+
   const f=x=>document.getElementById(x);
 
   if(id){
@@ -2366,6 +2426,10 @@ async function openClienteModal(id){
       f('f-valor').value=c.valor;
       f('f-status').value=c.status;
       f('f-obs').value=c.obs||'';
+      if(c.app && !_appsCache.some(a=>a.nome===c.app)) f('f-app').insertAdjacentHTML('beforeend',`<option value="${escH(c.app)}">${escH(c.app)}</option>`);
+      f('f-app').value=c.app||'';
+      f('f-app-login').value=c.app_login||'';
+      f('f-app-senha').value=c.app_senha||'';
       f('f-id').value=c.id;
     }catch(e){ toast('Erro ao carregar cliente','err'); return; }
   } else {
@@ -2377,10 +2441,32 @@ async function openClienteModal(id){
     f('f-dia-cob').value='';
     f('f-valor').value='';
     f('f-obs').value='';
+    f('f-app').value=''; f('f-app-login').value=''; f('f-app-senha').value='';
     f('f-status').value='ativo';
     f('f-id').value='';
   }
+  f('f-app-senha').type='password';
+  atualizarCamposApp();
   openOv('ov-cliente');
+}
+
+let _appsCache=[];
+function credDoApp(nome){ const a=_appsCache.find(x=>x.nome===nome); return a?a.credencial:(/clouddy/i.test(nome||'')?'email_senha':'mac_key'); }
+function atualizarCamposApp(){
+  const app=document.getElementById('f-app').value;
+  const email=credDoApp(app)==='email_senha';
+  document.getElementById('fg-app-login').style.display=app?'':'none';
+  document.getElementById('fg-app-senha').style.display=app?'':'none';
+  document.getElementById('lb-app-login').textContent=email?'E-mail':'MAC';
+  document.getElementById('lb-app-senha').textContent=email?'Senha':'Key';
+  const li=document.getElementById('f-app-login');
+  li.type=email?'email':'text';
+  li.placeholder=email?'email@exemplo.com':'00:1A:2B:3C:4D:5E';
+  document.getElementById('f-app-senha').placeholder=email?'Senha do app':'Key do app';
+}
+function formatarMac(v){
+  const h=String(v||'').replace(/[^0-9a-f]/gi,'').toUpperCase();
+  return h.length===12 ? h.match(/.{2}/g).join(':') : String(v||'').trim();
 }
 
 async function salvarCliente(){
@@ -2409,7 +2495,10 @@ async function salvarCliente(){
     dia_cobranca: (()=>{ const n=parseInt(g('f-dia-cob')); return n>=1&&n<=31&&n!==diaNum?n:null; })(),
     valor: parseFloat(valor),
     status: document.getElementById('f-status').value,
-    obs: g('f-obs')
+    obs: g('f-obs'),
+    app: g('f-app'),
+    app_login: g('f-app') ? (credDoApp(g('f-app'))==='mac_key' ? formatarMac(g('f-app-login')) : g('f-app-login')) : '',
+    app_senha: g('f-app') ? g('f-app-senha') : ''
   };
 
   try{

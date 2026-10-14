@@ -857,6 +857,19 @@ tbody tr:hover td{background:var(--bg3)}
           </div>
         </div>
 
+        <div class="cfg-section">
+          <div class="cfg-section-title"><i class="ti ti-bell-ringing"></i> Lembretes de cobrança</div>
+          <div class="form-hint" style="margin-bottom:.75rem">Usados na tela <b>Cobranças → Lembretes</b>. Variáveis: <span style="font-family:monospace">{nome} {nome_completo} {valor} {mes} {vencimento} {cobranca} {dias} {servidor} {pix}</span></div>
+          <div class="form-hint" style="margin:.5rem 0;color:var(--text)"><b>Quando o dia de cobrança é o mesmo do vencimento</b></div>
+          <div class="form-group"><label class="form-label">2 dias antes do vencimento</label><textarea id="cfg-msg_r_mesma_antes" rows="4"></textarea></div>
+          <div class="form-group"><label class="form-label">No dia do vencimento</label><textarea id="cfg-msg_r_mesma_dia" rows="4"></textarea></div>
+          <div class="form-group"><label class="form-label">2 dias após vencer (se não pagou)</label><textarea id="cfg-msg_r_mesma_atraso2" rows="4"></textarea></div>
+          <div class="form-hint" style="margin:.5rem 0;color:var(--text)"><b>Quando o dia de cobrança é diferente do vencimento</b></div>
+          <div class="form-group"><label class="form-label">No dia da cobrança</label><textarea id="cfg-msg_r_dif_cobranca" rows="4"></textarea></div>
+          <div class="form-group"><label class="form-label">2 dias após a cobrança (se não pagou)</label><textarea id="cfg-msg_r_dif_atraso2" rows="4"></textarea></div>
+          <div class="form-group"><label class="form-label">5 dias após a cobrança (se não pagou)</label><textarea id="cfg-msg_r_dif_atraso5" rows="4"></textarea></div>
+        </div>
+
         <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:1rem;border-top:1px solid var(--border)">
           <button class="btn" onclick="carregarConfigs()"><i class="ti ti-refresh"></i> Descartar</button>
           <button class="btn btn-primary" onclick="salvarConfigs()"><i class="ti ti-check"></i> Salvar configurações</button>
@@ -879,7 +892,9 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="form-group"><label class="form-label">Servidor *</label>
         <select id="f-servidor"><option value="">Selecione...</option></select>
       </div>
-      <div class="form-group"><label class="form-label">Dia de vencimento *</label><input id="f-dia" type="number" min="1" max="31" placeholder="1–31"></div>
+      <div class="form-group"><label class="form-label">Dia de vencimento da lista *</label><input id="f-dia" type="number" min="1" max="31" placeholder="1–31"></div>
+      <div class="form-group"><label class="form-label">Dia de cobrança</label><input id="f-dia-cob" type="number" min="1" max="31" placeholder="Mesmo do vencimento">
+        <div class="form-hint">Deixe vazio para cobrar no mesmo dia do vencimento.</div></div>
       <div class="form-group"><label class="form-label">Valor (R$) *</label><input id="f-valor" type="number" step="0.01" placeholder="0,00"></div>
       <div class="form-group"><label class="form-label">Status</label><select id="f-status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="f-obs" placeholder="Opcional"></div>
@@ -925,6 +940,34 @@ tbody tr:hover td{background:var(--bg3)}
     <div class="table-wrap" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
       <div id="h-lista"></div>
     </div>
+  </div>
+</div>
+
+<!-- Modal Lembretes do dia -->
+<div class="overlay" id="ov-lembretes">
+  <div class="modal" style="max-width:1000px;width:96vw">
+    <button class="close-btn" onclick="closeOv('ov-lembretes')"><i class="ti ti-x"></i></button>
+    <div class="modal-title"><i class="ti ti-bell-ringing" style="margin-right:6px"></i>Lembretes de cobrança</div>
+    <div class="ext-topo">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-sm" onclick="lemDia(-1)" title="Dia anterior"><i class="ti ti-chevron-left"></i></button>
+        <input type="date" id="lem-data" onchange="carregarLembretes()" style="width:auto">
+        <button class="btn btn-sm" onclick="lemDia(1)" title="Próximo dia"><i class="ti ti-chevron-right"></i></button>
+        <button class="btn btn-sm" onclick="lemHoje()">Hoje</button>
+      </div>
+      <div class="fin-visao" id="lem-filtros">
+        <button data-f="pendentes" class="active" onclick="lemFiltro('pendentes')">A enviar</button>
+        <button data-f="enviados" onclick="lemFiltro('enviados')">Enviados agora</button>
+      </div>
+    </div>
+    <div id="lem-resumo" class="ext-sub" style="margin-bottom:.5rem"></div>
+    <div class="table-wrap" style="max-height:60vh;overflow-y:auto;overflow-x:hidden;border:1px solid var(--border);border-radius:var(--radius-sm)">
+      <table class="ext-tab"><colgroup><col style="width:30%"><col style="width:150px"><col><col style="width:150px"></colgroup>
+        <thead><tr><th>Cliente</th><th>Lembrete</th><th>Mensagem</th><th style="text-align:center">Enviar</th></tr></thead>
+        <tbody id="lem-body"><tr><td colspan="4"><div class="loading">Carregando...</div></td></tr></tbody></table>
+    </div>
+    <div class="ext-sub" style="margin-top:.5rem">Mesma data de vencimento e cobrança: lembrete 2 dias antes, no dia e 2 dias depois. Datas diferentes: no dia da cobrança, 2 e 5 dias depois. Só aparece quem ainda não pagou. Os textos ficam em <b>Configurações</b>.</div>
+    <div class="modal-footer"><button class="btn" onclick="closeOv('ov-lembretes')">Fechar</button></div>
   </div>
 </div>
 
@@ -1513,7 +1556,7 @@ const TITLES={dashboard:'Painel',clientes:'Clientes',cobrancas:'Cobranças',inad
 const ACTIONS={
   dashboard:  ()=>`<button class="btn btn-primary" onclick="gerarMes()"><i class="ti ti-refresh"></i> Gerar cobranças do mês</button>`,
   clientes:   ()=>`<div class="btn-group"><button class="btn btn-amber" onclick="gerarTeste()"><i class="ti ti-test-pipe"></i> Dados de teste</button><button class="btn btn-purple" onclick="abrirImportarIPTV()"><i class="ti ti-table-import"></i> Importar planilha</button><button class="btn" onclick="abrirExportar()" title="Baixar backup em Excel"><i class="ti ti-file-download"></i> Exportar planilha</button><button class="btn" onclick="abrirMesclar()" title="Juntar dois cadastros do mesmo cliente"><i class="ti ti-git-merge"></i> Juntar clientes</button><button class="btn btn-primary" onclick="openClienteModal()"><i class="ti ti-plus"></i> Novo cliente</button></div>`,
-  cobrancas:  ()=>`<div class="btn-group"><button class="btn" onclick="abrirExtrato()" title="Dar baixa pelos PIX do extrato do banco"><i class="ti ti-building-bank"></i> Importar extrato</button><button class="btn btn-purple" onclick="abrirLote()"><i class="ti ti-layer-group"></i> Receber em lote</button><button class="btn btn-primary" onclick="gerarMes()"><i class="ti ti-refresh"></i> Gerar cobranças do mês</button></div>`,
+  cobrancas:  ()=>`<div class="btn-group"><button class="btn btn-wapp" onclick="abrirLembretes()" title="Lembretes de cobrança para enviar hoje"><i class="ti ti-bell-ringing"></i> Lembretes <span id="lem-badge" style="display:none;margin-left:4px;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px"></span></button><button class="btn" onclick="abrirExtrato()" title="Dar baixa pelos PIX do extrato do banco"><i class="ti ti-building-bank"></i> Importar extrato</button><button class="btn btn-purple" onclick="abrirLote()"><i class="ti ti-layer-group"></i> Receber em lote</button><button class="btn btn-primary" onclick="gerarMes()"><i class="ti ti-refresh"></i> Gerar cobranças do mês</button></div>`,
   inadimplentes:()=>'', cadastros:()=>'', configuracoes:()=>'',
   financeiro:()=>`<button class="btn" onclick="abrirExtrato()" title="Importar extrato OFX do banco"><i class="ti ti-building-bank"></i><span> Importar extrato</span></button> <button class="btn" id="btn-olho-valores" onclick="alternarValores()" title="Mostrar/ocultar valores"><i class="ti ti-eye-off"></i><span> Mostrar valores</span></button>`,
   'outras-vendas':()=>`<div class="btn-group">
@@ -1586,6 +1629,7 @@ function showPage(name){
   const fn={dashboard:renderDash,clientes:renderClientes,cobrancas:renderCobs,inadimplentes:renderInad,financeiro:renderFinanceiro,'outras-vendas':renderOutrasVendas,despesas:renderDespesas,cadastros:renderCadastros,configuracoes:carregarConfigs};
   if(name==='financeiro') aplicarEstadoValores();
   if(fn[name])fn[name]();
+  if(name==='cobrancas') atualizarBadgeLembretes();
 }
 
 /* ── DASHBOARD ── */
@@ -1636,7 +1680,7 @@ async function renderClientes(){
           <td style="font-weight:600">${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span></td>
           <td data-label="Celular">${c.celular||'—'}</td>
           <td data-label="Servidor">${c.servidor||'—'}</td>
-          <td data-label="Venc.">Dia ${c.dia}</td>
+          <td data-label="Venc.">Dia ${c.dia}${c.dia_cobranca&&c.dia_cobranca!==c.dia?`<div class="ext-sub" title="Dia de cobrança">cobra dia ${c.dia_cobranca}</div>`:''}</td>
           <td data-label="Valor" style="font-weight:600;color:var(--green)">${fmtV(c.valor)}</td>
           <td class="hide-mobile"><span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span></td>
           <td><div class="btn-group">
@@ -2318,6 +2362,7 @@ async function openClienteModal(id){
       f('f-cel').value=c.celular||'';
       f('f-servidor').value=c.servidor;
       f('f-dia').value=c.dia;
+      f('f-dia-cob').value=c.dia_cobranca&&c.dia_cobranca!==c.dia?c.dia_cobranca:'';
       f('f-valor').value=c.valor;
       f('f-status').value=c.status;
       f('f-obs').value=c.obs||'';
@@ -2329,6 +2374,7 @@ async function openClienteModal(id){
     f('f-cel').value='';
     f('f-servidor').value='';
     f('f-dia').value='';
+    f('f-dia-cob').value='';
     f('f-valor').value='';
     f('f-obs').value='';
     f('f-status').value='ativo';
@@ -2360,6 +2406,7 @@ async function salvarCliente(){
     celular: g('f-cel'),
     servidor,
     dia: diaNum,
+    dia_cobranca: (()=>{ const n=parseInt(g('f-dia-cob')); return n>=1&&n<=31&&n!==diaNum?n:null; })(),
     valor: parseFloat(valor),
     status: document.getElementById('f-status').value,
     obs: g('f-obs')
@@ -2381,6 +2428,77 @@ async function delCliente(id){
   if(!confirm('Excluir este cliente?'))return;
   try{await api('DELETE',`/api/clientes/${id}`);toast('Cliente excluído.');renderClientes();}
   catch(e){toast('Erro ao excluir','err');}
+}
+
+/* ── LEMBRETES DE COBRANÇA ── */
+let _lem={itens:[],enviados:new Set(),filtro:'pendentes'};
+const LEM_ETAPA={
+  antes:{t:'2 dias antes',c:'var(--accent)'}, dia:{t:'Vence hoje',c:'var(--amber)'}, atraso2:{t:'2 dias de atraso',c:'var(--red)'},
+  cobranca:{t:'Dia da cobrança',c:'var(--amber)'}, atraso5:{t:'5 dias de atraso',c:'var(--red)'}
+};
+function _hojeLocal(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function abrirLembretes(){ document.getElementById('lem-data').value=_hojeLocal(); _lem.enviados=new Set(); lemFiltro('pendentes',true); openOv('ov-lembretes'); carregarLembretes(); }
+function lemHoje(){ document.getElementById('lem-data').value=_hojeLocal(); carregarLembretes(); }
+function lemDia(n){ const el=document.getElementById('lem-data'); const d=new Date((el.value||_hojeLocal())+'T12:00:00'); d.setDate(d.getDate()+n);
+  el.value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; carregarLembretes(); }
+function lemFiltro(f,silencioso){ _lem.filtro=f; document.querySelectorAll('#lem-filtros button').forEach(b=>b.classList.toggle('active',b.dataset.f===f)); if(!silencioso) lemRender(); }
+async function carregarLembretes(){
+  const data=document.getElementById('lem-data').value||_hojeLocal();
+  document.getElementById('lem-body').innerHTML='<tr><td colspan="4"><div class="loading">Carregando...</div></td></tr>';
+  try{
+    const r=await api('GET',`/api/lembretes?data=${data}`);
+    // mantém na tela (como "enviado") o que você enviou agora há pouco
+    const antigos=_lem.itens.filter(i=>_lem.enviados.has(i.chave));
+    _lem.itens=[...r.itens, ...antigos.filter(a=>!r.itens.some(i=>i.chave===a.chave))];
+    lemRender();
+  }catch(e){ document.getElementById('lem-body').innerHTML=`<tr><td colspan="4" style="color:var(--red);padding:1rem">${escH(e.message||e)}</td></tr>`; }
+}
+function lemRender(){
+  const lista=_lem.itens.filter(i=>_lem.filtro==='enviados'?_lem.enviados.has(i.chave):!_lem.enviados.has(i.chave));
+  const pend=_lem.itens.filter(i=>!_lem.enviados.has(i.chave));
+  const por=e=>pend.filter(i=>i.etapa===e).length;
+  document.getElementById('lem-resumo').innerHTML=`<b>${pend.length}</b> para enviar`+
+    Object.keys(LEM_ETAPA).filter(por).map(e=>` · <span style="color:${LEM_ETAPA[e].c}">${por(e)} ${LEM_ETAPA[e].t.toLowerCase()}</span>`).join('')+
+    (_lem.enviados.size?` · ${_lem.enviados.size} enviado(s) agora`:'');
+  document.querySelectorAll('#lem-filtros button').forEach(b=>{ b.textContent=b.dataset.f==='pendentes'?`A enviar (${pend.length})`:`Enviados agora (${_lem.enviados.size})`; });
+  document.getElementById('lem-body').innerHTML=lista.map(i=>{
+    const e=LEM_ETAPA[i.etapa]||{t:i.etapa,c:'var(--muted)'};
+    const ok=_lem.enviados.has(i.chave);
+    return `<tr class="${ok?'ext-conf':''}">
+      <td><div class="ext-nome">${escH(i.cliente_nome)}</div>
+        <div class="ext-sub">${escH(i.servidor)} · ${fmtV(i.valor)} · ${i.celular?escH(i.celular):'<span style="color:var(--red)">sem celular</span>'}</div>
+        <div class="ext-sub">Venc. lista ${fmtD(i.vencimento)}${i.mesma_data?'':` · cobrança ${fmtD(i.cobranca)}`}${i.gerada?'':' · <span title="A cobrança deste mês ainda não foi gerada">cobrança não gerada</span>'}</div></td>
+      <td><span class="badge" style="color:${e.c};border:1px solid ${e.c};background:transparent">${e.t}</span>
+        <div class="ext-sub" style="margin-top:4px">${_mesCurto(i.mes_ref)}${i.atrasado?` · <span title="Era para ${fmtD(i.data_etapa)}">atrasado desde ${fmtD(i.data_etapa).slice(0,5)}</span>`:''}</div></td>
+      <td><div class="ext-hist" style="white-space:pre-wrap;max-height:90px;overflow:auto">${escH(i.mensagem)}</div></td>
+      <td style="text-align:center">${ok
+        ? `<div class="ext-sub" style="color:var(--green)"><i class="ti ti-circle-check"></i> enviado</div><button class="btn btn-sm" style="margin-top:4px" onclick="lemDesfazer('${i.chave}')">Desfazer</button>`
+        : `<button class="btn btn-sm btn-wapp" onclick="lemEnviar('${i.chave}')" ${i.celular?'':'disabled'}><i class="ti ti-brand-whatsapp"></i> Enviar</button>
+           <button class="btn btn-sm" style="margin-top:4px" onclick="lemMarcar('${i.chave}')" title="Já avisei de outra forma / não precisa">Marcar enviado</button>`}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:1.5rem">${_lem.filtro==='enviados'?'Nada enviado agora.':'<i class="ti ti-circle-check" style="color:var(--green)"></i> Nenhum lembrete para este dia.'}</td></tr>`;
+}
+async function lemMarcar(chave, silencioso){
+  const i=_lem.itens.find(x=>x.chave===chave); if(!i) return;
+  try{
+    await api('POST','/api/lembretes/enviado',{chave, cliente_id:i.cliente_id, mes_ref:i.mes_ref, etapa:i.etapa});
+    _lem.enviados.add(chave); lemRender(); atualizarBadgeLembretes();
+  }catch(e){ if(!silencioso) toast('Erro: '+(e.message||e),'err'); }
+}
+function lemEnviar(chave){
+  const i=_lem.itens.find(x=>x.chave===chave); if(!i) return;
+  let tel=i.celular; if(tel && !(tel.startsWith('55') && tel.length>=12)) tel='55'+tel;
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(i.mensagem)}`,'_blank');
+  lemMarcar(chave);
+}
+async function lemDesfazer(chave){
+  try{ await api('POST','/api/lembretes/enviado',{chave, desfazer:true}); _lem.enviados.delete(chave); lemRender(); atualizarBadgeLembretes(); }
+  catch(e){ toast('Erro: '+(e.message||e),'err'); }
+}
+async function atualizarBadgeLembretes(){
+  const b=document.getElementById('lem-badge'); if(!b) return;
+  try{ const r=await api('GET',`/api/lembretes?data=${_hojeLocal()}`); const n=r.itens.length; b.textContent=n; b.style.display=n?'':'none'; }
+  catch{ b.style.display='none'; }
 }
 
 /* ── IMPORTAR EXTRATO (OFX) ── */
@@ -2999,12 +3117,14 @@ function copiarMensagem(){
 }
 
 /* ── CONFIGURAÇÕES ── */
+const CFG_LEMBRETES=['msg_r_mesma_antes','msg_r_mesma_dia','msg_r_mesma_atraso2','msg_r_dif_cobranca','msg_r_dif_atraso2','msg_r_dif_atraso5'];
 async function carregarConfigs(){
   try{
     const cfg=await api('GET','/api/configuracoes');
     document.getElementById('cfg-pix').value=cfg.pix||'';
     document.getElementById('cfg-msg-pendente').value=cfg.msg_pendente||'';
     document.getElementById('cfg-msg-vencido').value=cfg.msg_vencido||'';
+    CFG_LEMBRETES.forEach(k=>{ const el=document.getElementById('cfg-'+k); if(el) el.value=cfg[k]||''; });
   }catch{toast('Erro ao carregar configurações','err');}
 }
 
@@ -3014,7 +3134,8 @@ async function salvarConfigs(){
   const vencido=document.getElementById('cfg-msg-vencido').value;
   if(!pendente||!vencido){toast('Preencha ambas as mensagens','err');return;}
   try{
-    await api('PUT','/api/configuracoes',{pix,msg_pendente:pendente,msg_vencido:vencido});
+    const lem={}; CFG_LEMBRETES.forEach(k=>{ const el=document.getElementById('cfg-'+k); if(el && el.value.trim()) lem[k]=el.value; });
+    await api('PUT','/api/configuracoes',{pix,msg_pendente:pendente,msg_vencido:vencido,...lem});
     toast('Configurações salvas!');
   }catch{toast('Erro ao salvar','err');}
 }

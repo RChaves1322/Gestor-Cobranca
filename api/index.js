@@ -164,6 +164,21 @@ async function pagarClienteExtrato(clienteId, mesesSel, valor, data, it, dividid
   return ids;
 }
 
+// ── Lembretes ──────────────────────────────────────────────
+// Dia de cobrança só é guardado quando diferente do vencimento da lista
+function diaCobrancaOuNull(v, dia){ const n=parseInt(v); if(!(n>=1&&n<=31)) return null; return n===parseInt(dia)?null:n; }
+function hojeBR(){ return new Date(Date.now()-3*3600*1000).toISOString().slice(0,10); } // horário de Brasília
+function primeiroNome(n){ const t=String(n||'').replace(/^\S*\d\S*\s*-\s*/,'').trim().split(/\s+/)[0]||n; return t.charAt(0).toUpperCase()+t.slice(1).toLowerCase(); }
+function nomeMes(mr){ const [a,m]=mr.split('-'); return ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][parseInt(m)-1]+'/'+a; }
+const MSG_LEMBRETE_PADRAO={
+  mesma_antes:   'Olá {nome}! Passando para lembrar que sua mensalidade de {mes} (R$ {valor}) vence em {vencimento}.\n\nPix: {pix}\n\nQualquer dúvida estou à disposição!',
+  mesma_dia:     'Olá {nome}! Sua mensalidade de {mes} (R$ {valor}) vence hoje, {vencimento}.\n\nPix: {pix}\n\nSe já pagou, pode desconsiderar. Obrigado!',
+  mesma_atraso2: 'Olá {nome}! Não identifiquei ainda o pagamento da mensalidade de {mes} (R$ {valor}), que venceu em {vencimento}.\n\nPix: {pix}\n\nSe já pagou, me envia o comprovante por favor. Obrigado!',
+  dif_cobranca:  'Olá {nome}! Hoje, {cobranca}, é o dia do pagamento da sua mensalidade de {mes} (R$ {valor}).\n\nPix: {pix}\n\nObrigado!',
+  dif_atraso2:   'Olá {nome}! Ainda não identifiquei o pagamento da mensalidade de {mes} (R$ {valor}), combinado para {cobranca}.\n\nPix: {pix}\n\nSe já pagou, me envia o comprovante por favor.',
+  dif_atraso5:   'Olá {nome}! A mensalidade de {mes} (R$ {valor}) está em aberto há {dias} dias (pagamento combinado para {cobranca}).\n\nPix: {pix}\n\nPor favor, regularize para evitar a suspensão do acesso. Obrigado!'
+};
+
 // Lê uma tabela que pode ainda não existir (migração não rodada)
 async function tabelaOpcional(t, cols, qf){
   const r=await selectAll(t, cols, qf);
@@ -272,11 +287,15 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const { nome, celular, servidor, dia, valor, status, obs } = body;
       if (!nome||!dia||!valor) return err(res,'Campos obrigatórios faltando');
-      const { data } = await sb.from('clientes').insert({
+      const novo={
         id:uid(), nome, celular:celular||'', servidor:normalizarServidor(servidor)||'',
         dia:parseInt(dia), valor:parseFloat(valor), status:status||'ativo', obs:obs||'',
+        dia_cobranca:diaCobrancaOuNull(body.dia_cobranca, dia),
         criado:new Date().toISOString()
-      }).select().single();
+      };
+      let { data, error } = await sb.from('clientes').insert(novo).select().single();
+      if (error && /dia_cobranca/.test(error.message||'')) { delete novo.dia_cobranca; ({ data, error } = await sb.from('clientes').insert(novo).select().single()); }
+      if (error) return err(res, `Erro ao salvar cliente: ${error.message}`, 500);
       return res.json(data);
     }
   }
@@ -417,8 +436,10 @@ export default async function handler(req, res) {
       if (body.valor!==undefined && !isNaN(parseFloat(body.valor))) upd.valor=parseFloat(body.valor);
       if (body.status!==undefined)   upd.status=body.status==='ativo'?'ativo':'inativo';
       if (body.obs!==undefined)      upd.obs=body.obs||'';
+      if (body.dia_cobranca!==undefined) upd.dia_cobranca=diaCobrancaOuNull(body.dia_cobranca, body.dia);
       if (!Object.keys(upd).length) return err(res,'Nada para atualizar');
-      const { data, error } = await sb.from('clientes').update(upd).eq('id',id).select().single();
+      let { data, error } = await sb.from('clientes').update(upd).eq('id',id).select().single();
+      if (error && /dia_cobranca/.test(error.message||'')) { delete upd.dia_cobranca; ({ data, error } = await sb.from('clientes').update(upd).eq('id',id).select().single()); }
       if (error) return err(res, `Erro ao atualizar cliente: ${error.message}`, 500);
       return res.json(data);
     }
@@ -929,6 +950,7 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const { data } = await sb.from('configuracoes').select('*');
       const cfg = {}; data.forEach(r=>cfg[r.chave]=r.valor);
+      for (const [k,v] of Object.entries(MSG_LEMBRETE_PADRAO)) if (!cfg[`msg_r_${k}`]) cfg[`msg_r_${k}`]=v;
       return res.json(cfg);
     }
     if (req.method === 'PUT') {
@@ -936,6 +958,80 @@ export default async function handler(req, res) {
         await sb.from('configuracoes').upsert({ chave, valor });
       return res.json({ ok:true });
     }
+  }
+
+  // ─── LEMBRETES DE COBRANÇA (régua) ────────────────────────────
+  // Cada cliente tem o dia de vencimento da lista (dia) e, opcionalmente, um
+  // dia de cobrança diferente (dia_cobranca).
+  //   Mesma data:      2 dias antes · no dia · 2 dias depois (se não pagou)
+  //   Datas diferentes: no dia da cobrança · +2 dias · +5 dias (se não pagou)
+  // A lista mostra, para a data escolhida, a etapa mais recente de cada mês em
+  // aberto que ainda não foi enviada (até 3 dias de atraso, para não perder
+  // lembretes se você pular um dia).
+  if (url === '/lembretes' && req.method === 'GET') {
+    const hoje = /^\d{4}-\d{2}-\d{2}$/.test(params.data||'') ? params.data : hojeBR();
+    const mesT = hoje.slice(0,7);
+    const meses = [somarMeses(mesT,-2), somarMeses(mesT,-1), mesT, somarMeses(mesT,1)];
+    const [cls, mvs, env, cfg] = await Promise.all([
+      selectAll('clientes','*', q=>q.eq('status','ativo')),
+      selectAll('movimentos_financeiros','id,cliente_id,mes_ref,status,valor,vencimento,tipo_movimento', q=>q.in('mes_ref',meses).neq('status','cancelado')),
+      tabelaOpcional('lembretes_enviados','chave,enviado_em', q=>q.in('mes_ref',meses)),
+      sb.from('configuracoes').select('chave,valor')
+    ]);
+    if (env.faltaTabela) return err(res,'Rode o arquivo MIGRACAO_LEMBRETES.sql no Supabase para usar os lembretes.');
+    const conf={}; (cfg.data||[]).forEach(r=>conf[r.chave]=r.valor);
+    const enviados=new Set(env.data.map(r=>r.chave));
+    const porCli=new Map();
+    for (const m of (mvs.data||[])) { if(!porCli.has(m.cliente_id)) porCli.set(m.cliente_id,[]); porCli.get(m.cliente_id).push(m); }
+    const somaDias=(d,n)=>{ const x=new Date(d+'T12:00:00Z'); x.setUTCDate(x.getUTCDate()+n); return x.toISOString().slice(0,10); };
+    const diff=(a,b)=>Math.round((new Date(a+'T12:00:00Z')-new Date(b+'T12:00:00Z'))/86400000);
+    const dataNoMes=(mr,dia)=>{ const [a,m]=mr.split('-').map(Number); return `${mr}-${pad(Math.min(dia, diasNoMes(m,a)))}`; };
+    const itens=[];
+    for (const c of (cls.data||[])) {
+      const diaV=parseInt(c.dia)||1;
+      const diaC=parseInt(c.dia_cobranca)||diaV;
+      const mesma=diaC===diaV;
+      const movsC=porCli.get(c.id)||[];
+      for (const mr of meses) {
+        const doMes=movsC.filter(m=>m.mes_ref===mr);
+        if (doMes.some(m=>m.status==='pago')) continue;               // já pago
+        const mov=doMes.find(m=>m.status==='pendente'||m.status==='vencido');
+        if (!mov && mr<mesT) continue;                                // mês passado sem cobrança = não estava ativo
+        const venc=dataNoMes(mr,diaV), cob=dataNoMes(mr,diaC);
+        const etapas = mesma
+          ? [{ etapa:'antes', d:somaDias(venc,-2) }, { etapa:'dia', d:venc }, { etapa:'atraso2', d:somaDias(venc,2) }]
+          : [{ etapa:'cobranca', d:cob }, { etapa:'atraso2', d:somaDias(cob,2) }, { etapa:'atraso5', d:somaDias(cob,5) }];
+        let k=-1; etapas.forEach((e,i)=>{ if(e.d<=hoje) k=i; });
+        if (k<0) continue;
+        const atual=etapas[k];
+        if (diff(hoje,atual.d)>3) continue;
+        const chaveDe=e=>`${c.id}|${mr}|${e.etapa}`;
+        if (etapas.slice(k).some(e=>enviados.has(chaveDe(e)))) continue;
+        const valor=Number(mov?.valor ?? c.valor ?? 0);
+        const ref = mesma ? venc : cob;
+        const diasAtraso=Math.max(0,diff(hoje,ref));
+        const tpl = conf[`msg_r_${mesma?'mesma':'dif'}_${atual.etapa}`] || MSG_LEMBRETE_PADRAO[`${mesma?'mesma':'dif'}_${atual.etapa}`];
+        const mensagem=String(tpl||'')
+          .replace(/{nome}/g, primeiroNome(c.nome)).replace(/{nome_completo}/g, c.nome)
+          .replace(/{valor}/g, fmtValor(valor)).replace(/{vencimento}/g, fmtData(venc)).replace(/{cobranca}/g, fmtData(cob))
+          .replace(/{mes}/g, nomeMes(mr)).replace(/{servidor}/g, c.servidor||'').replace(/{pix}/g, conf.pix||'')
+          .replace(/{dias}/g, String(diasAtraso));
+        itens.push({ chave:chaveDe(atual), cliente_id:c.id, cliente_nome:c.nome, servidor:c.servidor||'', celular:(c.celular||'').replace(/\D/g,''),
+          mes_ref:mr, etapa:atual.etapa, mesma_data:mesma, data_etapa:atual.d, atrasado:atual.d<hoje,
+          vencimento:venc, cobranca:cob, valor, dias_atraso:diasAtraso, gerada:!!mov, mov_id:mov?.id||null, mensagem });
+      }
+    }
+    const ordem={antes:0,cobranca:1,dia:1,atraso2:2,atraso5:3};
+    itens.sort((a,b)=>(ordem[a.etapa]-ordem[b.etapa]) || a.cliente_nome.localeCompare(b.cliente_nome,'pt-BR'));
+    return res.json({ data:hoje, itens });
+  }
+  if (url === '/lembretes/enviado' && req.method === 'POST') {
+    const { chave, cliente_id, mes_ref, etapa, desfazer } = body;
+    if (!chave) return err(res,'Chave obrigatória');
+    if (desfazer) { await sb.from('lembretes_enviados').delete().eq('chave',chave); return res.json({ ok:true }); }
+    const { error } = await sb.from('lembretes_enviados').upsert({ chave, cliente_id, mes_ref, etapa, enviado_em:new Date().toISOString() },{ onConflict:'chave' });
+    if (error) return err(res, /lembretes_enviados/.test(error.message)?'Rode o arquivo MIGRACAO_LEMBRETES.sql no Supabase.':error.message, 500);
+    return res.json({ ok:true });
   }
 
   // ─── WHATSAPP ─────────────────────────────────────────────────

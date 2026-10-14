@@ -129,6 +129,41 @@ function lerOFX(txt){
   out.conta=tag(txt,'ACCTID'); out.periodo={ de:tag(txt,'DTSTART').slice(0,8), ate:tag(txt,'DTEND').slice(0,8) };
   return out;
 }
+// Dá baixa de um PIX (ou parte dele) nos meses escolhidos de um cliente
+async function pagarClienteExtrato(clienteId, mesesSel, valor, data, it, dividido){
+    const { data:c } = await sb.from('clientes').select('*').eq('id',clienteId).single();
+    if (!c) throw new Error('cliente não encontrado');
+    const meses=(mesesSel||[]).filter(Boolean);
+    if (!meses.length) throw new Error('nenhum mês escolhido');
+    const parte=Number((valor/meses.length).toFixed(2));
+    const { data:exist } = await sb.from('movimentos_financeiros').select('*').eq('cliente_id',c.id).in('mes_ref',meses).neq('status','cancelado');
+    const ids=[];
+    for (const [i,mr] of meses.entries()) {
+      const vp = i===meses.length-1 ? Number((valor-parte*(meses.length-1)).toFixed(2)) : parte;
+      const ex=(exist||[]).find(m=>m.mes_ref===mr && m.status!=='pago');
+      const obs=`Extrato ${it.banco||'banco'} – ${it.nome||''}${dividido?' (PIX dividido)':''}`.trim();
+      if (ex) {
+        const { error } = await sb.from('movimentos_financeiros').update({
+          status:'pago', pago_em:data, valor_pago:vp, desconto:Math.max(0,Number(ex.valor||0)-vp),
+          obs_pagamento:obs, origem:ex.origem||'extrato' }).eq('id',ex.id);
+        if (error) throw error; ids.push(ex.id);
+      } else {
+        const jaPago=(exist||[]).some(m=>m.mes_ref===mr && m.status==='pago');
+        const [a,mm]=mr.split('-').map(Number);
+        const dia=Math.min(parseInt(c.dia)||1, diasNoMes(mm,a));
+        const idFixo=`mov_${c.id}_${a}${pad(mm)}`;
+        const id = jaPago ? uid()+'ext' : idFixo;
+        const { error } = await sb.from('movimentos_financeiros').upsert({
+          id, cliente_id:c.id, cliente_nome:c.nome, servidor:c.servidor||'', valor:Math.max(Number(c.valor||0),vp),
+          vencimento:`${mr}-${pad(dia)}`, mes_ref:mr, status:'pago', pago_em:data, valor_pago:vp,
+          desconto:Math.max(0,Number(c.valor||0)-vp), obs_pagamento:obs, tipo_movimento:'mensalidade',
+          origem:'extrato', criado:new Date().toISOString() },{ onConflict:'id' });
+        if (error) throw error; ids.push(id);
+      }
+    }
+  return ids;
+}
+
 // Lê uma tabela que pode ainda não existir (migração não rodada)
 async function tabelaOpcional(t, cols, qf){
   const r=await selectAll(t, cols, qf);
@@ -443,9 +478,14 @@ export default async function handler(req, res) {
       const conhecido=pagadores.get(l.chave);
       if (conhecido) {
         it.destino=conhecido.destino; it.conhecido=true;
-        if (conhecido.destino==='cliente' && porId.has(conhecido.cliente_id)) it.cliente_id=conhecido.cliente_id;
+        if (conhecido.destino==='cliente' && porId.has(conhecido.cliente_id)) {
+          it.cliente_id=conhecido.cliente_id;
+          // PIX que costuma pagar mais de um cliente (lembrado como "dividir:id1,id2")
+          if (String(conhecido.tipo||'').startsWith('dividir:'))
+            it.partes=String(conhecido.tipo).slice(8).split(',').filter(id=>porId.has(id)).map(id=>({ cliente_id:id }));
+        }
         else if (conhecido.destino==='cliente') { it.destino=''; it.conhecido=false; }
-        it.tipo=conhecido.tipo||''; it.servidor=conhecido.servidor||'';
+        it.tipo=conhecido.destino==='cliente'?'':(conhecido.tipo||''); it.servidor=conhecido.servidor||'';
       } else if (l.investimento) {
         it.destino='ignorar';
       } else if (l.valor>0) {
@@ -498,37 +538,18 @@ export default async function handler(req, res) {
       let ref_id=null;
       try {
         if (it.destino==='cliente') {
-          const { data:c } = await sb.from('clientes').select('*').eq('id',it.cliente_id).single();
-          if (!c) throw new Error('cliente não encontrado');
-          const meses=(it.meses||[]).filter(Boolean);
-          if (!meses.length) throw new Error('nenhum mês escolhido');
-          const parte=Number((valor/meses.length).toFixed(2));
-          const { data:exist } = await sb.from('movimentos_financeiros').select('*').eq('cliente_id',c.id).in('mes_ref',meses).neq('status','cancelado');
+          // Um PIX pode pagar mais de um cliente (ex.: o dele e o da sogra).
+          // "partes" são os clientes extras; o principal fica com o restante.
+          const extras=(Array.isArray(it.partes)?it.partes:[]).filter(p=>p&&p.cliente_id);
+          const somaExtras=extras.reduce((t,p)=>t+Math.abs(Number(p.valor||0)),0);
+          const partes=[{ cliente_id:it.cliente_id, meses:it.meses, valor:Number((valor-somaExtras).toFixed(2)) }, ...extras.map(p=>({ cliente_id:p.cliente_id, meses:p.meses, valor:Math.abs(Number(p.valor||0)) }))];
+          if (partes.some(p=>!(p.valor>0))) throw new Error('valor das partes não fecha com o PIX');
           const ids=[];
-          for (const [i,mr] of meses.entries()) {
-            const vp = i===meses.length-1 ? Number((valor-parte*(meses.length-1)).toFixed(2)) : parte;
-            const ex=(exist||[]).find(m=>m.mes_ref===mr && m.status!=='pago');
-            const obs=`Extrato ${it.banco||'banco'} – ${it.nome||''}`.trim();
-            if (ex) {
-              const { error } = await sb.from('movimentos_financeiros').update({
-                status:'pago', pago_em:data, valor_pago:vp, desconto:Math.max(0,Number(ex.valor||0)-vp),
-                obs_pagamento:obs, origem:ex.origem||'extrato' }).eq('id',ex.id);
-              if (error) throw error; ids.push(ex.id);
-            } else {
-              const jaPago=(exist||[]).some(m=>m.mes_ref===mr && m.status==='pago');
-              const [a,mm]=mr.split('-').map(Number);
-              const dia=Math.min(parseInt(c.dia)||1, diasNoMes(mm,a));
-              const idFixo=`mov_${c.id}_${a}${pad(mm)}`;
-              const id = jaPago ? uid()+'ext' : idFixo;
-              const { error } = await sb.from('movimentos_financeiros').upsert({
-                id, cliente_id:c.id, cliente_nome:c.nome, servidor:c.servidor||'', valor:Math.max(Number(c.valor||0),vp),
-                vencimento:`${mr}-${pad(dia)}`, mes_ref:mr, status:'pago', pago_em:data, valor_pago:vp,
-                desconto:Math.max(0,Number(c.valor||0)-vp), obs_pagamento:obs, tipo_movimento:'mensalidade',
-                origem:'extrato', criado:agora },{ onConflict:'id' });
-              if (error) throw error; ids.push(id);
-            }
+          for (const pt of partes) {
+            const r=await pagarClienteExtrato(pt.cliente_id, pt.meses, pt.valor, data, it, extras.length>0);
+            ids.push(...r); resumo.meses+=(pt.meses||[]).filter(Boolean).length;
           }
-          ref_id=ids.join(','); resumo.mensalidades++; resumo.meses+=meses.length;
+          ref_id=ids.join(','); resumo.mensalidades++;
         } else if (it.destino==='receita') {
           const { data:r, error } = await sb.from('outras_vendas').insert({ id:uid(), data, tipo_rec:(it.tipo||'Outras Receitas').trim(),
             cliente:(it.nome||'').trim()||'—', produto:(it.descricao||'Extrato bancário').trim(), valor_un:valor, qtde:1, total:valor,
@@ -547,7 +568,7 @@ export default async function handler(req, res) {
           chave:it.chave||null, destino:it.destino, ref_id, criado:agora });
         if (it.lembrar && it.chave) {
           await sb.from('extrato_pagadores').upsert({ chave:it.chave, nome:it.nome||'', destino:it.destino,
-            cliente_id:it.destino==='cliente'?it.cliente_id:null, tipo:it.tipo||null, servidor:(normalizarServidor((it.servidor||'').trim())||it.servidor||null), criado:agora },{ onConflict:'chave' });
+            cliente_id:it.destino==='cliente'?it.cliente_id:null, tipo:(it.destino==='cliente' ? ((it.partes||[]).filter(p=>p&&p.cliente_id).length ? 'dividir:'+(it.partes||[]).filter(p=>p&&p.cliente_id).map(p=>p.cliente_id).join(',') : null) : (it.tipo||null)), servidor:(normalizarServidor((it.servidor||'').trim())||it.servidor||null), criado:agora },{ onConflict:'chave' });
         }
       } catch(e) {
         resumo.erros.push({ fitid:it.fitid, nome:it.nome, mensagem:e?.message||String(e) });

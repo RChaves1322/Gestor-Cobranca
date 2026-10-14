@@ -165,6 +165,27 @@ async function pagarClienteExtrato(clienteId, mesesSel, valor, data, it, dividid
 }
 
 // ── Lembretes ──────────────────────────────────────────────
+// Campos do app do cliente (nome do app + MAC/e-mail + Key/senha)
+function camposApp(body, upd){
+  if (body.app!==undefined)       upd.app=String(body.app||'').trim()||null;
+  if (body.app_login!==undefined) upd.app_login=String(body.app_login||'').trim()||null;
+  if (body.app_senha!==undefined) upd.app_senha=String(body.app_senha||'').trim()||null;
+  return upd;
+}
+// Grava em clientes ignorando colunas que ainda não existem (migração não rodada)
+async function gravarCliente(op, row, id){
+  const r={...row};
+  for (let t=0;t<6;t++){
+    const q = op==='insert' ? sb.from('clientes').insert(r) : sb.from('clientes').update(r).eq('id',id);
+    const { data, error } = await q.select().single();
+    const m = error && String(error.message||'').match(/'([a-z_]+)' column|column "?([a-z_]+)"? (?:of relation|does not exist)/);
+    const col = m && (m[1]||m[2]);
+    if (col && col in r && ['dia_cobranca','app','app_login','app_senha'].includes(col)) { delete r[col]; continue; }
+    return { data, error };
+  }
+  return { data:null, error:{ message:'falha ao gravar cliente' } };
+}
+
 // Dia de cobrança só é guardado quando diferente do vencimento da lista
 function diaCobrancaOuNull(v, dia){ const n=parseInt(v); if(!(n>=1&&n<=31)) return null; return n===parseInt(dia)?null:n; }
 function hojeBR(){ return new Date(Date.now()-3*3600*1000).toISOString().slice(0,10); } // horário de Brasília
@@ -249,6 +270,39 @@ export default async function handler(req, res) {
   const { data: authData, error: authError } = await sbAuth.auth.getUser(token);
   if (authError || !authData?.user) return err(res, 'Sessão inválida ou expirada', 401);
   // ─── SERVIDORES ───────────────────────────────────────────────
+  // ─── APPS (IBO Player, Clouddy...) ────────────────────────────
+  // credencial: 'mac_key' (MAC + Key) ou 'email_senha' (E-mail + Senha)
+  if (url === '/apps') {
+    if (req.method === 'GET') {
+      const { data, error } = await sb.from('apps').select('*').order('nome');
+      if (error) return res.json([]);           // tabela ainda não criada
+      return res.json(data);
+    }
+    if (req.method === 'POST') {
+      const nome=(body.nome||'').trim();
+      if (!nome) return err(res,'Nome obrigatório');
+      const credencial = body.credencial==='email_senha' ? 'email_senha' : 'mac_key';
+      const { data, error } = await sb.from('apps').insert({ id:uid(), nome, credencial, criado:new Date().toISOString() }).select().single();
+      if (error) return err(res, /apps/.test(error.message)&&/exist|schema/.test(error.message)?'Rode o MIGRACAO_APPS.sql no Supabase.':'App já existe');
+      return res.json(data);
+    }
+  }
+  if (url.match(/^\/apps\/[^/]+$/)) {
+    const id=url.split('/')[2];
+    if (req.method==='PUT') {
+      const upd={};
+      if (body.nome!==undefined) upd.nome=String(body.nome).trim();
+      if (body.credencial!==undefined) upd.credencial=body.credencial==='email_senha'?'email_senha':'mac_key';
+      const { data:antes } = await sb.from('apps').select('nome').eq('id',id).single();
+      const { data, error } = await sb.from('apps').update(upd).eq('id',id).select().single();
+      if (error) return err(res, error.message, 500);
+      // renomeou: atualiza os clientes que usavam o nome antigo
+      if (upd.nome && antes?.nome && antes.nome!==upd.nome) await sb.from('clientes').update({ app:upd.nome }).eq('app',antes.nome);
+      return res.json(data);
+    }
+    if (req.method==='DELETE') { await sb.from('apps').delete().eq('id',id); return res.json({ ok:true }); }
+  }
+
   if (url === '/servidores') {
     if (req.method === 'GET') {
       const { data } = await sb.from('servidores').select('*').order('nome');
@@ -278,11 +332,16 @@ export default async function handler(req, res) {
   // ─── CLIENTES ─────────────────────────────────────────────────
   if (url === '/clientes') {
     if (req.method === 'GET') {
-      let q = sb.from('clientes').select('*').order('nome');
-      if (params.status) q = q.eq('status', params.status);
-      if (params.busca)  q = q.or(`nome.ilike.%${params.busca}%,servidor.ilike.%${params.busca}%`);
-      const { data } = await q;
-      return res.json(data);
+      // A busca também procura pelo MAC/e-mail do app (se a coluna já existir)
+      const montar=comApp=>{
+        let q = sb.from('clientes').select('*').order('nome');
+        if (params.status) q = q.eq('status', params.status);
+        if (params.busca)  q = q.or(`nome.ilike.%${params.busca}%,servidor.ilike.%${params.busca}%${comApp?`,app_login.ilike.%${params.busca}%,app.ilike.%${params.busca}%`:''}`);
+        return q;
+      };
+      let { data, error } = await montar(true);
+      if (error && params.busca) ({ data } = await montar(false));
+      return res.json(data||[]);
     }
     if (req.method === 'POST') {
       const { nome, celular, servidor, dia, valor, status, obs } = body;
@@ -293,8 +352,8 @@ export default async function handler(req, res) {
         dia_cobranca:diaCobrancaOuNull(body.dia_cobranca, dia),
         criado:new Date().toISOString()
       };
-      let { data, error } = await sb.from('clientes').insert(novo).select().single();
-      if (error && /dia_cobranca/.test(error.message||'')) { delete novo.dia_cobranca; ({ data, error } = await sb.from('clientes').insert(novo).select().single()); }
+      camposApp(body, novo);
+      const { data, error } = await gravarCliente('insert', novo);
       if (error) return err(res, `Erro ao salvar cliente: ${error.message}`, 500);
       return res.json(data);
     }
@@ -437,9 +496,9 @@ export default async function handler(req, res) {
       if (body.status!==undefined)   upd.status=body.status==='ativo'?'ativo':'inativo';
       if (body.obs!==undefined)      upd.obs=body.obs||'';
       if (body.dia_cobranca!==undefined) upd.dia_cobranca=diaCobrancaOuNull(body.dia_cobranca, body.dia);
+      camposApp(body, upd);
       if (!Object.keys(upd).length) return err(res,'Nada para atualizar');
-      let { data, error } = await sb.from('clientes').update(upd).eq('id',id).select().single();
-      if (error && /dia_cobranca/.test(error.message||'')) { delete upd.dia_cobranca; ({ data, error } = await sb.from('clientes').update(upd).eq('id',id).select().single()); }
+      const { data, error } = await gravarCliente('update', upd, id);
       if (error) return err(res, `Erro ao atualizar cliente: ${error.message}`, 500);
       return res.json(data);
     }

@@ -187,7 +187,14 @@ tbody tr:hover td{background:var(--bg3)}
 /* DISTRIBUIÇÃO */
 .dist-bar-wrap{margin-bottom:.5rem}
 .ext-topo{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:.75rem}
-.ext-tab td{vertical-align:top;font-size:12.5px}
+.ext-tab{table-layout:fixed;width:100%}
+.ext-tab td{vertical-align:top;font-size:12.5px;white-space:normal;word-break:break-word;padding:7px 8px}
+.ext-tab th{padding:7px 8px}
+.ext-tab select{width:100%}
+.ext-tab .ext-det input{width:100%;min-width:0}
+.ext-nome{font-weight:600;line-height:1.25}
+.ext-lembrar{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);margin-top:4px;cursor:pointer}
+.ext-lembrar input{width:13px!important;height:13px;margin:0}
 .ext-tab select,.ext-tab input{font-size:12px;padding:4px 6px}
 .ext-tab tr.ext-ok td{opacity:.45}
 .ext-tab tr.ext-falta td:first-child{box-shadow:inset 3px 0 var(--amber)}
@@ -198,11 +205,12 @@ tbody tr:hover td{background:var(--bg3)}
 .ext-ok-btn.on{color:var(--green);border-color:var(--green)}
 .ext-prog{height:5px;background:var(--bg3);border-radius:99px;margin:6px 0 4px;overflow:hidden;max-width:420px}
 .ext-prog div{height:100%;background:var(--green);transition:width .3s}
-.ext-det{display:flex;flex-direction:column;gap:4px;min-width:260px}
+.ext-det{display:flex;flex-direction:column;gap:4px;min-width:0}
 .ext-det .linha{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 .ext-sub{font-size:11px;color:var(--muted)}
 .ext-tab td:nth-child(4) select{min-width:125px}
-.ext-hist{font-size:11px;color:var(--muted);background:var(--bg3);border-radius:var(--radius-sm);padding:5px 7px;line-height:1.5}
+.ext-hist{font-size:11px;color:var(--muted);background:var(--bg3);border-radius:var(--radius-sm);padding:4px 7px;line-height:1.45}
+@media(max-width:800px){.ext-tab colgroup col:nth-child(1){width:38%}.ext-tab colgroup col:nth-child(2){width:110px}}
 .mg-grid{display:grid;grid-template-columns:1fr auto 1fr;gap:12px}
 .mg-col{display:flex;flex-direction:column;gap:6px;min-width:0}
 .mg-col select{width:100%;padding:4px;font-size:13px}
@@ -946,9 +954,9 @@ tbody tr:hover td{background:var(--bg3)}
           <button data-f="todos" data-label="Todos" onclick="extFiltro('todos')">Todos</button>
         </div>
       </div>
-      <div class="table-wrap" style="max-height:58vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm)">
-        <table class="ext-tab"><thead><tr>
-          <th>Data</th><th>Pagador / Recebedor</th><th style="text-align:right">Valor</th><th>Destino</th><th>Detalhe</th><th title="Lembrar para as próximas importações">Lembrar</th><th>Conferido</th>
+      <div class="table-wrap" style="max-height:62vh;overflow-y:auto;overflow-x:hidden;border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <table class="ext-tab"><colgroup><col style="width:27%"><col style="width:150px"><col><col style="width:72px"></colgroup><thead><tr>
+          <th>Lançamento</th><th>Destino</th><th>Detalhe</th><th style="text-align:center">OK</th>
         </tr></thead><tbody id="ext-body"></tbody></table>
       </div>
       <div id="ext-resumo" style="font-size:13px;margin-top:.75rem"></div>
@@ -2491,11 +2499,11 @@ function extDuplicado(i, usados){
 function extHistoricoHtml(i){
   const h=_ext.hist[i.cliente_id]||[];
   const d=(i.dup && i.dup_cliente===undefined) ? i.dup : extDuplicado(i);
-  const ult=h.slice(0,4).map(m=>`<span title="${m.origem}">${_mesCurto(m.mes_ref)} <span style="opacity:.75">(${m.pago_em?fmtD(m.pago_em).slice(0,5):'s/ data'} · ${fmtV(m.valor_pago)})</span></span>`).join(' · ');
+  const ult=h.slice(0,3).map(m=>`<span title="${m.origem}">${_mesCurto(m.mes_ref)} <span style="opacity:.75">(${m.pago_em?fmtD(m.pago_em).slice(0,5):'s/ data'} · ${fmtV(m.valor_pago)})</span></span>`).join(' · ');
   let aviso='';
-  if(d && !d.parcial) aviso=`<div style="color:var(--red);font-weight:600">⚠ Parece já lançado: ${d.meses.map(m=>_mesCurto(m.mes_ref)).join(', ')} pago em ${fmtD(d.data)} (${fmtV(d.total)})${i.auto_ignorado?' — marcado como Ignorar':''}</div>`;
+  if(d && !d.parcial) aviso=`<div style="color:var(--red);font-weight:600">⚠ Já lançado? ${d.meses.map(m=>_mesCurto(m.mes_ref)).join(', ')} pago em ${fmtD(d.data).slice(0,5)} (${fmtV(d.total)})</div>`;
   else if(d && d.parcial) aviso=`<div style="color:var(--amber)">Atenção: há pagamento em ${fmtD(d.data)} (${fmtV(d.total)}). Confira se não é o mesmo PIX.</div>`;
-  return `<div class="ext-hist">${aviso}<div><b>Últimos pagos:</b> ${ult||'nenhum pagamento registrado'}</div></div>`;
+  return `<div class="ext-hist">${aviso}<div><b>Últimos:</b> ${ult||'nenhum pagamento registrado'}</div></div>`;
 }
 function extFalta(i){
   if(i.ja_importado) return false;
@@ -2556,10 +2564,10 @@ function extDetalhe(i,idx){
       <input placeholder="Descrição (ex.: Fire Stick)" value="${escH(i.descricao_user||'')}" onchange="extCampo(${idx},'descricao_user',this.value)"></div></div>`;
   if(i.destino==='despesa') return `<div class="ext-det"><div class="linha">
       <select onchange="extSet(${idx},'tipo',this.value)">${opt(_ext.tiposD,i.tipo)}</select>
-      <input list="ext-dl-servidores" placeholder="Servidor / responsável" value="${escH(i.servidor||'')}" onchange="extCampo(${idx},'servidor',this.value)" style="width:130px">
-      <input type="number" min="1" max="36" value="${i.meses_cobertos||1}" title="Cobre quantos meses" onchange="extCampo(${idx},'meses_cobertos',this.value)" style="width:52px"><span class="ext-sub">mês(es)</span></div></div>`;
+      <input list="ext-dl-servidores" placeholder="Servidor / responsável" value="${escH(i.servidor||'')}" onchange="extCampo(${idx},'servidor',this.value)" style="flex:1;min-width:110px;width:auto">
+      <input type="number" min="1" max="36" value="${i.meses_cobertos||1}" title="Cobre quantos meses" onchange="extCampo(${idx},'meses_cobertos',this.value)" style="width:52px!important;flex:none"><span class="ext-sub">mês(es)</span></div></div>`;
   if(i.destino==='ignorar') return i.cliente_id
-      ? `<div class="ext-det"><span class="ext-sub">Não será lançado · ${escH((_ext.clientes.find(x=>x.id===i.cliente_id)||{}).nome||'')}</span>${extHistoricoHtml(i)}${i.auto_ignorado?`<div><button class="btn btn-sm" onclick="extSet(${idx},'destino','cliente')">É um pagamento novo — lançar</button></div>`:''}</div>`
+      ? `<div class="ext-det"><div class="linha"><span class="ext-sub" style="flex:1">Não será lançado · ${escH((_ext.clientes.find(x=>x.id===i.cliente_id)||{}).nome||'')}</span>${i.auto_ignorado?`<button class="btn btn-sm" onclick="extSet(${idx},'destino','cliente')" title="Este PIX é um pagamento novo">É novo — lançar</button>`:''}</div>${extHistoricoHtml(i)}</div>`
       : '<span class="ext-sub">Não será lançado</span>';
   return '<span class="ext-sub" style="color:var(--amber)">Escolha o destino</span>';
 }
@@ -2569,24 +2577,26 @@ function extAcao(i,idx){
   if(extFalta(i)) return '<span class="ext-sub" style="color:var(--amber)">falta</span>';
   return i.conferido
     ? `<button class="btn btn-sm ext-ok-btn on" onclick="extSet(${idx},'desconferir')" title="Conferido — clique para desfazer"><i class="ti ti-circle-check"></i></button>`
-    : `<button class="btn btn-sm ext-ok-btn" onclick="extSet(${idx},'conferir')" title="Está certo — marcar como conferido"><i class="ti ti-check"></i> OK</button>`;
+    : `<button class="btn btn-sm ext-ok-btn" onclick="extSet(${idx},'conferir')" title="Está certo — marcar como conferido">OK</button>`;
 }
 function extRender(){
   const vis=(_ext.snap||[]).map(idx=>({i:_ext.itens[idx],idx}));
   document.getElementById('ext-body').innerHTML=vis.map(({i,idx})=>`<tr id="ext-tr-${idx}" class="${extClasse(i)}">
-    <td style="white-space:nowrap">${fmtD(i.data)}</td>
-    <td title="${escH(i.memo)}"><div style="font-weight:600">${escH(i.nome||i.descricao)}</div><div class="ext-sub">${escH(i.nome?i.descricao:'')}${i.conhecido?' · <span style="color:var(--green)">reconhecido</span>':''}</div></td>
-    <td style="text-align:right;font-weight:700;color:${i.valor>=0?'var(--green)':'var(--red)'};white-space:nowrap">${fmtV(i.valor)}</td>
-    <td>${i.ja_importado?'—':`<select onchange="extSet(${idx},'destino',this.value)">
+    <td title="${escH(i.memo)}">
+      <div class="ext-nome">${escH(i.nome||i.descricao)}</div>
+      <div class="ext-sub"><b style="color:${i.valor>=0?'var(--green)':'var(--red)'};font-size:12.5px">${fmtV(i.valor)}</b> · ${fmtD(i.data)}${i.conhecido?' · <span style="color:var(--green)">reconhecido</span>':''}</div>
+      <div class="ext-sub">${escH(i.nome?i.descricao:'')}</div>
+    </td>
+    <td>${i.ja_importado?'<span class="ext-sub">já gravado</span>':`<select onchange="extSet(${idx},'destino',this.value)">
       <option value=""${!i.destino?' selected':''}>— escolher —</option>
       ${i.valor>0?`<option value="cliente"${i.destino==='cliente'?' selected':''}>Mensalidade</option>`:''}
       <option value="receita"${i.destino==='receita'?' selected':''}>Receita</option>
       <option value="despesa"${i.destino==='despesa'?' selected':''}>Despesa</option>
-      <option value="ignorar"${i.destino==='ignorar'?' selected':''}>Ignorar</option></select>`}</td>
+      <option value="ignorar"${i.destino==='ignorar'?' selected':''}>Ignorar</option></select>
+      ${i.nome?`<label class="ext-lembrar" title="Usar esta escolha nas próximas importações"><input type="checkbox" ${i.lembrar?'checked':''} onchange="extCampo(${idx},'lembrar',this.checked)"> lembrar</label>`:''}`}</td>
     <td>${extDetalhe(i,idx)}</td>
-    <td style="text-align:center">${i.ja_importado||!i.nome?'':`<input type="checkbox" ${i.lembrar?'checked':''} onchange="extCampo(${idx},'lembrar',this.checked)" style="width:16px;height:16px">`}</td>
     <td style="text-align:center">${extAcao(i,idx)}</td>
-  </tr>`).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:1.5rem">${_ext.filtro==='pendentes'?'<i class="ti ti-circle-check" style="color:var(--green)"></i> Tudo conferido! Clique em <b>Gravar conferidos</b>.':'Nada neste filtro.'}</td></tr>`;
+  </tr>`).join('') || `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:1.5rem">${_ext.filtro==='pendentes'?'<i class="ti ti-circle-check" style="color:var(--green)"></i> Tudo conferido! Clique em <b>Gravar conferidos</b>.':'Nada neste filtro.'}</td></tr>`;
   extAtualizarResumo();
 }
 function extAtualizarResumo(){

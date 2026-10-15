@@ -268,6 +268,63 @@ tbody tr:hover td{background:var(--bg3)}
 .fin-visao button{background:var(--bg3);color:var(--muted);border:none;padding:6px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;font-family:inherit}
 .fin-visao button.active{background:var(--accent);color:#fff}
 .fin-ajuda{font-size:12px;color:var(--muted);margin:-.25rem 0 1rem}
+.fin-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:.75rem}
+.fin-periodo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.fin-periodo input{width:150px;padding:6px 8px;font-size:13px}
+.fin-atalhos{display:flex;gap:4px;margin-left:4px}
+.fin-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:1rem}
+.fin-kpi{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:.9rem 1rem}
+.fin-kpi-l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+.fin-kpi-v{font-size:22px;font-weight:700;margin-top:6px;letter-spacing:-.3px}
+.fin-kpi-s{font-size:11px;color:var(--muted);margin-top:3px}
+.fin-tabs{display:flex;gap:4px;margin-bottom:.75rem;overflow-x:auto;padding-bottom:2px}
+.fin-tabs button{background:transparent;border:1px solid transparent;color:var(--muted);padding:7px 12px;border-radius:var(--radius-sm);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;font-family:inherit}
+.fin-tabs button:hover{color:var(--text);background:var(--bg2)}
+.fin-tabs button.active{background:var(--bg2);border-color:var(--border);color:var(--text);font-weight:600}
+.fin-rel-head{margin-bottom:1rem}.fin-rel-t{font-size:15px;font-weight:600}.fin-rel-s{font-size:12px;color:var(--muted);margin-top:3px}
+.fb{margin-bottom:1.25rem}
+.fb-plot{position:relative;height:190px;margin-left:58px}
+.fb-grid{position:absolute;left:0;right:0;border-top:1px dashed rgba(122,133,158,.18);height:0}
+.fb-grid span{position:absolute;right:calc(100% + 8px);top:-7px;font-size:10px;color:var(--muted);white-space:nowrap}
+.fb-cols{position:absolute;inset:0;display:flex;gap:2px}
+.fb-col{flex:1;position:relative;cursor:default}
+.fb-col:hover{background:rgba(255,255,255,.03)}
+.fb-bar{position:absolute;left:18%;right:18%;border-radius:4px 4px 0 0}
+.fb-bar.neg{border-radius:0 0 4px 4px}
+.fb-azul{background:var(--accent)}.fb-verde{background:var(--green)}.fb-vermelho{background:var(--red)}.fb-roxo{background:var(--purple)}
+.fb-col:hover .fb-bar{filter:brightness(1.2)}
+.fb-val{position:absolute;left:0;right:0;text-align:center;font-size:10px;font-weight:600;color:var(--text);white-space:nowrap}
+.valores-ocultos .fb-grid span,.valores-ocultos .fb-val{visibility:hidden}
+.fb-x{display:flex;gap:2px;margin-left:58px;margin-top:6px}
+.fb-x span{flex:1;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden}
+#fin-tip{position:fixed;z-index:9999;display:none;background:#0b0e15;border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:12px;line-height:1.5;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.fin-tab{width:100%}
+.fin-tab th.n,.fin-tab td.n{text-align:right;font-variant-numeric:tabular-nums}
+.fin-tab tfoot td{font-weight:700;border-top:2px solid var(--border);background:var(--bg3)}
+.fin-click{cursor:pointer}.fin-click:hover td{background:rgba(255,255,255,.02)}
+.fin-sub td{background:var(--bg3);padding:.5rem .75rem!important}
+.fin-sub-list{display:flex;flex-direction:column;gap:4px}
+.fin-sub-item{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;padding:4px 0;border-bottom:1px solid var(--border)}
+.fin-sub-item:last-child{border-bottom:none}
+.fin-sub-meta{color:var(--muted);font-size:12px;flex:1}
+.srv-wrap{display:grid;grid-template-columns:280px 1fr;gap:1.25rem;align-items:start}
+.srv-ult{background:var(--bg3);border-radius:var(--radius-sm);padding:.9rem}
+.srv-ult-t{font-size:12px;font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+.srv-bar{margin-bottom:10px}.srv-bar-l{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:4px}
+.srv-bar-l span:last-child{color:var(--muted)}
+.srv-bar-t{height:8px;background:var(--bg);border-radius:4px;overflow:hidden}.srv-bar-t div{height:100%;background:var(--accent);border-radius:4px}
+.srv-mat td,.srv-mat th{white-space:nowrap}
+@media(max-width:1100px){.fin-kpis{grid-template-columns:repeat(3,1fr)}.srv-wrap{grid-template-columns:1fr}}
+@media(max-width:640px){
+  .fin-tab tfoot{display:block}
+  .fin-tab tr{grid-template-columns:1fr!important}
+  .fin-tab td:not(:first-child){grid-column:1!important;grid-row:auto!important;display:flex!important;flex-direction:row!important;justify-content:space-between!important;align-items:center;color:var(--text)!important;font-size:13px!important;text-align:right}
+  .fin-tab td:not(:first-child):empty{display:none!important}
+  .fin-tab tfoot tr{background:var(--bg3)}
+  .fin-sub td{display:block!important}
+  .fin-periodo input{flex:1}
+}
+@media(max-width:600px){.fin-kpis{grid-template-columns:1fr 1fr}.fin-kpi-v{font-size:17px}.fin-periodo input{width:130px}.fb-plot,.fb-x{margin-left:46px}.fb-x span:nth-child(even){visibility:hidden}}
 .fin-metric-sub{font-size:11px;color:var(--muted);margin-top:4px}
 .dist-bar-label{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;color:var(--muted)}
 .dist-bar-label span:first-child{color:var(--text);font-weight:500}
@@ -694,24 +751,41 @@ tbody tr:hover td{background:var(--bg3)}
     <!-- FINANCEIRO -->
     <div id="page-financeiro" class="page">
 
-      <!-- Filtro global (mensalidades) -->
-      <div class="filter-bar" style="margin-bottom:.75rem">
-        <label style="font-size:12px;color:var(--muted);white-space:nowrap;align-self:center">Período:</label>
-        <input type="month" id="fin-de" style="max-width:160px">
-        <span style="color:var(--muted);align-self:center">até</span>
-        <input type="month" id="fin-ate" style="max-width:160px">
-        <button class="btn btn-primary btn-sm" onclick="renderFinanceiro()"><i class="ti ti-search"></i> Filtrar</button>
-        <button class="btn btn-sm" onclick="limparFiltroFin()"><i class="ti ti-x"></i> Limpar</button>
-        <div class="fin-visao" style="margin-left:auto">
+      <div class="fin-top">
+        <div class="fin-periodo">
+          <span>Período</span>
+          <input type="month" id="fin-de">
+          <span>até</span>
+          <input type="month" id="fin-ate">
+          <button class="btn btn-primary btn-sm" onclick="renderFinanceiro()"><i class="ti ti-search"></i> Aplicar</button>
+          <div class="fin-atalhos">
+            <button class="btn btn-sm" onclick="finAtalho(6)">6 meses</button>
+            <button class="btn btn-sm" onclick="finAtalho(12)">12 meses</button>
+            <button class="btn btn-sm" onclick="finAtalho('ano')">Este ano</button>
+          </div>
+        </div>
+        <div class="fin-visao">
           <button id="fv-caixa" class="active" onclick="finSetVisao('caixa')" title="Pela data em que o dinheiro entrou"><i class="ti ti-cash"></i> Caixa</button>
           <button id="fv-comp" onclick="finSetVisao('competencia')" title="Pelo mês de referência da mensalidade"><i class="ti ti-calendar-month"></i> Competência</button>
         </div>
       </div>
       <div id="fin-visao-ajuda" class="fin-ajuda"></div>
 
-      <!-- Métricas de mensalidades -->
-      <div id="fin-totais" class="fin-grid"></div>
+      <div id="fin-totais" class="fin-kpis"></div>
 
+      <div class="fin-tabs" id="fin-tabs">
+        <button data-aba="mensal" class="active" onclick="finSetAba('mensal')"><i class="ti ti-users"></i> Mensalidades</button>
+        <button data-aba="liquido" onclick="finSetAba('liquido')"><i class="ti ti-receipt-tax"></i> Mensalidades − Despesas</button>
+        <button data-aba="receitas" onclick="finSetAba('receitas')"><i class="ti ti-shopping-cart"></i> Receitas</button>
+        <button data-aba="geral" onclick="finSetAba('geral')"><i class="ti ti-scale"></i> Resultado geral</button>
+        <button data-aba="atrasos" onclick="finSetAba('atrasos')"><i class="ti ti-alert-triangle"></i> Atrasos</button>
+        <button data-aba="servidores" onclick="finSetAba('servidores')"><i class="ti ti-server"></i> Servidores</button>
+        <button data-aba="detalhes" onclick="finSetAba('detalhes')"><i class="ti ti-list-details"></i> Mais detalhes</button>
+      </div>
+
+      <div class="card" id="fin-rel"><div class="loading">Carregando...</div></div>
+
+      <div id="fin-detalhes" style="display:none">
       <!-- A receber por mês -->
       <div class="card">
         <div class="card-header">
@@ -805,6 +879,7 @@ tbody tr:hover td{background:var(--bg3)}
         </div>
 
       </div>
+      </div><!-- /fin-detalhes -->
     </div>
 
     <!-- CADASTROS GERAIS -->
@@ -2019,48 +2094,208 @@ async function finBuscar(de,ate){
   return api('GET',url);
 }
 
-async function renderFinanceiro(){
-  const elDe  = document.getElementById('fin-de');
-  const elAte = document.getElementById('fin-ate');
-  if(!elDe||!elAte) return;
-  if(!elDe.value)  elDe.value  = finMesAtual();
-  if(!elAte.value) elAte.value = finMesAtual();
+/* ── FINANCEIRO: relatórios ── */
+let finAba='mensal', _finDados=null;
+function finMesesEntre(de,ate){ const out=[]; let mr=de; let g=0; while(mr<=ate && g++<120){ out.push(mr); const [a,m]=mr.split('-').map(Number); mr=m===12?`${a+1}-01`:`${a}-${pad(m+1)}`; } return out; }
+function finSomarMeses(mr,n){ const [a,m]=mr.split('-').map(Number); const d=new Date(a,m-1+n,1); return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
+function finAtalho(t){
+  const ma=finMesAtual();
+  document.getElementById('fin-ate').value=ma;
+  document.getElementById('fin-de').value = t==='ano' ? `${ma.slice(0,4)}-01` : finSomarMeses(ma,-(t-1));
+  renderFinanceiro();
+}
+function fmtCurto(v){ const n=Number(v||0), a=Math.abs(n); if(a>=1e6) return 'R$ '+(n/1e6).toFixed(1).replace('.',',')+' mi'; if(a>=1e3) return 'R$ '+(n/1e3).toFixed(1).replace('.',',')+' mil'; return 'R$ '+n.toFixed(0); }
+function fmtPct(v){ return isFinite(v)?(v*100).toFixed(1).replace('.',',')+'%':'—'; }
+function finMesCurto(mr){ const M=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']; const [a,m]=mr.split('-'); return `${M[+m-1]}/${a.slice(2)}`; }
 
-  const setDefault = (id, val) => { const e=document.getElementById(id); if(e&&!e.value) e.value=val; };
-  setDefault('rg-de',  finAnoAtualDe());
-  setDefault('rg-ate', finAnoAtualAte());
-  setDefault('hm-de',  finAnoAtualDe());
-  setDefault('hm-ate', finAnoAtualAte());
-  setDefault('cli-de', finAnoAtualDe());
-  setDefault('cli-ate',finAnoAtualAte());
-  setDefault('cs-de',  finAnoAtualDe());
-  setDefault('cs-ate', finAnoAtualAte());
+// Gráfico de barras simples (um valor por mês). cor: 'azul' | 'verde' | 'vermelho' | 'roxo' | 'sinal'
+function finBarras(pontos, cor, legenda){
+  if(!pontos.length) return '';
+  const vals=pontos.map(p=>p.v), max=Math.max(0,...vals), min=Math.min(0,...vals), range=(max-min)||1;
+  const base=(-min/range)*100;
+  const iMax=vals.indexOf(Math.max(...vals)), iUlt=vals.length-1;
+  const grades=[max>0?max:null, max>0?max/2:null, 0, (min<0 && -min/range>0.12)?min:null].filter(x=>x!==null);
+  const linhas=[...new Set(grades)].map(g=>`<div class="fb-grid" style="bottom:${((g-min)/range)*100}%"><span>${fmtCurto(g)}</span></div>`).join('');
+  const cols=pontos.map((p,i)=>{
+    const h=Math.abs(p.v)/range*100, neg=p.v<0;
+    const c=cor==='sinal'?(neg?'vermelho':'verde'):cor;
+    const lbl=(i===iMax||i===iUlt)&&p.v!==0?`<div class="fb-val" style="${neg?`top:calc(${100-base+h}% + 4px)`:`bottom:calc(${base+h}% + 4px)`}">${fmtCurto(p.v)}</div>`:'';
+    return `<div class="fb-col" data-tip="${escH(p.tip)}" onmousemove="finTip(event,this)" onmouseleave="finTip(null)">
+      <div class="fb-bar fb-${c}${neg?' neg':''}" style="${neg?`top:${100-base}%`:`bottom:${base}%`};height:${Math.max(h,p.v?1:0)}%"></div>${lbl}</div>`;
+  }).join('');
+  return `<div class="fb">${legenda?`<div class="fb-leg">${legenda}</div>`:''}
+    <div class="fb-plot">${linhas}<div class="fb-cols">${cols}</div></div>
+    <div class="fb-x">${pontos.map(p=>`<span>${p.rot}</span>`).join('')}</div></div>`;
+}
+function finTip(e,el){
+  let t=document.getElementById('fin-tip');
+  if(!t){ t=document.createElement('div'); t.id='fin-tip'; (document.getElementById('page-financeiro')||document.body).appendChild(t); }
+  if(!e){ t.style.display='none'; return; }
+  t.innerHTML=el.dataset.tip.replace(/\n/g,'<br>'); t.style.display='block';
+  const x=Math.min(e.clientX+14, window.innerWidth-t.offsetWidth-8);
+  t.style.left=x+'px'; t.style.top=(e.clientY-t.offsetHeight-10)+'px';
+}
+function finTabela(cab, linhas, total){
+  // data-label em cada célula: no celular a tabela vira cartões "rótulo: valor"
+  const rot=h=>String(h).replace(/<[^>]+>/g,'').replace(/"/g,'');
+  const rotular=r=>{ if(/colspan/.test(r)) return r; let i=0; return r.replace(/<td/g,()=>{ const c=cab[i++]; return i>1&&c?`<td data-label="${rot(c.t)}"`:'<td'; }); };
+  linhas=linhas.map(rotular); if(total) total=rotular(total);
+  return `<div class="table-wrap"><table class="fin-tab"><thead><tr>${cab.map(c=>`<th${c.n?' class="n"':''}>${c.t}</th>`).join('')}</tr></thead>
+    <tbody>${linhas.join('')}</tbody>${total?`<tfoot>${total}</tfoot>`:''}</table></div>`;
+}
+const td=(v,n,st)=>`<td${n?' class="n"':''}${st?` style="${st}"`:''}>${v}</td>`;
+
+async function renderFinanceiro(){
+  const elDe=document.getElementById('fin-de'), elAte=document.getElementById('fin-ate');
+  if(!elDe||!elAte) return;
+  const ma=finMesAtual();
+  if(!elAte.value) elAte.value=ma;
+  if(!elDe.value)  elDe.value=finSomarMeses(elAte.value,-11);
+  if(elDe.value>elAte.value) [elDe.value,elAte.value]=[elAte.value,elDe.value];
+  const setDefault=(id,val)=>{ const e=document.getElementById(id); if(e&&!e.value) e.value=val; };
+  ['rg','hm','cli','cs'].forEach(k=>{ setDefault(k+'-de',finAnoAtualDe()); setDefault(k+'-ate',finAnoAtualAte()); });
 
   const ajuda=document.getElementById('fin-visao-ajuda');
   if(ajuda) ajuda.innerHTML = finVisao==='caixa'
-    ? '<b>Caixa:</b> valores pela data em que o dinheiro entrou. Pagamentos antecipados contam no mês em que foram pagos.'
-    : '<b>Competência:</b> valores pelo mês a que a mensalidade se refere. 6 meses pagos de uma vez aparecem divididos nos 6 meses.';
-
+    ? '<b>Caixa:</b> mensalidades e despesas pela data em que o dinheiro entrou ou saiu.'
+    : '<b>Competência:</b> mensalidades pelo mês a que se referem; renovações que cobrem vários meses são divididas entre eles.';
+  document.getElementById('fin-rel').innerHTML='<div class="loading">Carregando...</div>';
   try{
-    const {totais, receitaAntecipada, aReceber:aReceberResp} = await finBuscar(elDe.value, elAte.value);
-    const caixa=finVisao==='caixa';
-    document.getElementById('fin-totais').innerHTML=`
-      <div class="fin-metric" style="${caixa?'border-color:var(--accent)':''}"><div class="fin-metric-label">Recebido no caixa</div><div class="fin-metric-val cv-green">${fmtV(totais.recebido)}</div><div class="fin-metric-sub">${totais.qtd_recebimentos} mensalidade(s) pagas no período</div></div>
-      <div class="fin-metric" style="${!caixa?'border-color:var(--accent)':''}"><div class="fin-metric-label">Receita do período (competência)</div><div class="fin-metric-val cv-blue">${fmtV(totais.competencia)}</div><div class="fin-metric-sub">${totais.qtd_competencia} mês(es) de cliente pagos</div></div>
-      <div class="fin-metric"><div class="fin-metric-label">Antecipado recebido</div><div class="fin-metric-val cv-purple" style="color:var(--purple,#a78bfa)">${fmtV(totais.antecipado)}</div><div class="fin-metric-sub">pago no período para meses seguintes</div></div>
-      <div class="fin-metric"><div class="fin-metric-label">Em aberto</div><div class="fin-metric-val cv-amber">${fmtV(totais.em_aberto)}</div></div>
-      <div class="fin-metric"><div class="fin-metric-label">Em atraso</div><div class="fin-metric-val cv-red">${fmtV(totais.atrasado)}</div></div>
-      <div class="fin-metric"><div class="fin-metric-label">Total faturado</div><div class="fin-metric-val">${fmtV(totais.total)}</div></div>`;
-    renderAntecipada(receitaAntecipada);
-    renderAReceber(aReceberResp);
+    _finDados=await finBuscar(elDe.value, elAte.value);
   }catch(e){ toast('Erro ao carregar financeiro','err'); return; }
+  renderFinKpis();
+  await renderFinAba();
+}
 
-  await _finPopularSelectMeses();
-  await renderResumoGeral();
-  await renderHistoricoMensal();
-  await renderDistServidor();
-  await renderClientesAtivos();
-  await renderAtivosServidor();
+// Meses do período (crescente), completando com zero os meses sem movimento
+function finLinhas(){
+  const de=document.getElementById('fin-de').value, ate=document.getElementById('fin-ate').value;
+  const porMes=new Map((_finDados?.meses||[]).map(m=>[m.mes_ref,m]));
+  return finMesesEntre(de,ate).map(mr=>{
+    const m=porMes.get(mr)||{mes_ref:mr};
+    const v=finV(m);
+    const outras=Number(m.outras_receitas||0);
+    return { mr, m, mensal:Number(v.mensal||0), clientes:Number(v.clientes||0), despesas:Number(v.despesas||0),
+      outras, resultado:Number(v.mensal||0)-Number(v.despesas||0)+outras };
+  });
+}
+
+function renderFinKpis(){
+  const L=finLinhas(), soma=f=>L.reduce((s,l)=>s+l[f],0);
+  const mensal=soma('mensal'), desp=soma('despesas'), outras=soma('outras'), res=mensal-desp+outras;
+  const cli=soma('clientes'), ticket=cli?mensal/cli:0;
+  const ar=_finDados.aReceber||[];
+  const atraso=ar.reduce((s,g)=>s+Number(g.vencido||0),0);
+  const cliAtr=new Set(ar.flatMap(g=>g.itens.filter(i=>i.status==='vencido').map(i=>i.cliente_id))).size;
+  const k=(lbl,val,cls,sub)=>`<div class="fin-kpi"><div class="fin-kpi-l">${lbl}</div><div class="fin-kpi-v ${cls||''}">${val}</div><div class="fin-kpi-s">${sub||''}</div></div>`;
+  document.getElementById('fin-totais').innerHTML=
+    k('Mensalidades (bruto)',fmtV(mensal),'',`ticket médio ${fmtV(ticket)}`)+
+    k('Despesas',fmtV(desp),'',`${L.length} mês(es)`)+
+    k('Outras receitas',fmtV(outras),'',`${L.reduce((s,l)=>s+(l.m.qtd_outras||0),0)} lançamento(s)`)+
+    k('Resultado geral',fmtV(res),res>=0?'cv-green':'cv-red',`bruto − despesas + receitas`)+
+    k('Em atraso hoje',fmtV(atraso),atraso?'cv-red':'',`${cliAtr} cliente(s)`);
+}
+
+function finSetAba(a){
+  finAba=a;
+  document.querySelectorAll('#fin-tabs button').forEach(b=>b.classList.toggle('active',b.dataset.aba===a));
+  renderFinAba();
+}
+
+async function renderFinAba(){
+  if(!_finDados) return;
+  const box=document.getElementById('fin-rel'), det=document.getElementById('fin-detalhes');
+  const detalhes=finAba==='detalhes';
+  box.style.display=detalhes?'none':''; det.style.display=detalhes?'':'none';
+  if(detalhes){
+    renderAntecipada(_finDados.receitaAntecipada);
+    renderAReceber(_finDados.aReceber);
+    await _finPopularSelectMeses();
+    await renderResumoGeral(); await renderHistoricoMensal(); await renderDistServidor();
+    await renderClientesAtivos(); await renderAtivosServidor();
+    return;
+  }
+  const L=finLinhas(), caixa=finVisao==='caixa';
+  const head=(t,sub)=>`<div class="fin-rel-head"><div class="fin-rel-t">${t}</div><div class="fin-rel-s">${sub}</div></div>`;
+  let html='';
+
+  if(finAba==='mensal'){
+    const tot=L.reduce((s,l)=>s+l.mensal,0), cli=L.reduce((s,l)=>s+l.clientes,0);
+    html=head('Recebido bruto de mensalidades por mês', caixa?'Clientes = quem pagou no mês. Ticket médio = recebido ÷ clientes.':'Clientes = quem tem o mês de referência pago. Ticket médio = recebido ÷ clientes.')
+      +finBarras(L.map(l=>({rot:finMesCurto(l.mr),v:l.mensal,tip:`${fmtMesRef(l.mr)}\nRecebido: ${fmtV(l.mensal)}\n${l.clientes} cliente(s)`})),'azul')
+      +finTabela([{t:'Mês'},{t:'Clientes',n:1},{t:'Recebido bruto',n:1},{t:'Ticket médio',n:1}],
+        L.map(l=>`<tr>${td(fmtMesRef(l.mr))}${td(l.clientes,1)}${td(fmtV(l.mensal),1)}${td(l.clientes?fmtV(l.mensal/l.clientes):'—',1)}</tr>`),
+        `<tr>${td('Total')}${td(cli,1)}${td(fmtV(tot),1)}${td(cli?fmtV(tot/cli):'—',1)}</tr>`);
+  }
+  else if(finAba==='liquido'){
+    const tm=L.reduce((s,l)=>s+l.mensal,0), tdp=L.reduce((s,l)=>s+l.despesas,0);
+    html=head('Mensalidades menos despesas', 'Recebido bruto das mensalidades − despesas do mês. Não inclui outras receitas.')
+      +finBarras(L.map(l=>({rot:finMesCurto(l.mr),v:l.mensal-l.despesas,tip:`${fmtMesRef(l.mr)}\nRecebido: ${fmtV(l.mensal)}\nDespesas: ${fmtV(l.despesas)}\nLíquido: ${fmtV(l.mensal-l.despesas)}`})),'sinal')
+      +finTabela([{t:'Mês'},{t:'Recebido bruto',n:1},{t:'Despesas',n:1},{t:'Líquido',n:1},{t:'Margem',n:1}],
+        L.map(l=>{ const liq=l.mensal-l.despesas; return `<tr>${td(fmtMesRef(l.mr))}${td(fmtV(l.mensal),1)}${td(fmtV(l.despesas),1)}${td(fmtV(liq),1,`font-weight:600;color:var(${liq>=0?'--green':'--red'})`)}${td(l.mensal?fmtPct(liq/l.mensal):'—',1)}</tr>`; }),
+        `<tr>${td('Total')}${td(fmtV(tm),1)}${td(fmtV(tdp),1)}${td(fmtV(tm-tdp),1,`color:var(${tm-tdp>=0?'--green':'--red'})`)}${td(tm?fmtPct((tm-tdp)/tm):'—',1)}</tr>`);
+  }
+  else if(finAba==='receitas'){
+    const porTipo={}; L.forEach(l=>Object.entries(l.m.outras_por_tipo||{}).forEach(([t,v])=>porTipo[t]=(porTipo[t]||0)+v));
+    const tipos=Object.entries(porTipo).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
+    const cols=tipos.slice(0,4), resto=tipos.length>4;
+    const tipoV=(l,t)=>Number((l.m.outras_por_tipo||{})[t]||0);
+    const outrosV=l=>tipos.slice(4).reduce((s,t)=>s+tipoV(l,t),0);
+    const tot=L.reduce((s,l)=>s+l.outras,0), qtd=L.reduce((s,l)=>s+(l.m.qtd_outras||0),0);
+    html=head('Outras receitas por mês', 'Lançamentos da tela Receitas, separados pelos tipos mais usados.')
+      +finBarras(L.map(l=>({rot:finMesCurto(l.mr),v:l.outras,tip:`${fmtMesRef(l.mr)}\nReceitas: ${fmtV(l.outras)}\n${l.m.qtd_outras||0} lançamento(s)`})),'roxo')
+      +finTabela([{t:'Mês'},{t:'Qtde',n:1},...cols.map(t=>({t:escH(t),n:1})),...(resto?[{t:'Outros',n:1}]:[]),{t:'Total',n:1}],
+        L.map(l=>`<tr>${td(fmtMesRef(l.mr))}${td(l.m.qtd_outras||0,1)}${cols.map(t=>td(tipoV(l,t)?fmtV(tipoV(l,t)):'—',1)).join('')}${resto?td(outrosV(l)?fmtV(outrosV(l)):'—',1):''}${td(fmtV(l.outras),1,'font-weight:600')}</tr>`),
+        `<tr>${td('Total')}${td(qtd,1)}${cols.map(t=>td(fmtV(porTipo[t]),1)).join('')}${resto?td(fmtV(tipos.slice(4).reduce((s,t)=>s+porTipo[t],0)),1):''}${td(fmtV(tot),1)}</tr>`);
+  }
+  else if(finAba==='geral'){
+    const t=f=>L.reduce((s,l)=>s+l[f],0); const tr=t('resultado'), entradas=t('mensal')+t('outras');
+    html=head('Resultado geral', 'Mensalidades (bruto) − despesas + outras receitas.')
+      +finBarras(L.map(l=>({rot:finMesCurto(l.mr),v:l.resultado,tip:`${fmtMesRef(l.mr)}\nMensalidades: ${fmtV(l.mensal)}\nReceitas: ${fmtV(l.outras)}\nDespesas: ${fmtV(l.despesas)}\nResultado: ${fmtV(l.resultado)}`})),'sinal')
+      +finTabela([{t:'Mês'},{t:'Mensalidades',n:1},{t:'+ Receitas',n:1},{t:'− Despesas',n:1},{t:'= Resultado',n:1},{t:'Margem',n:1}],
+        L.map(l=>{ const ent=l.mensal+l.outras; return `<tr>${td(fmtMesRef(l.mr))}${td(fmtV(l.mensal),1)}${td(fmtV(l.outras),1)}${td(fmtV(l.despesas),1)}${td(fmtV(l.resultado),1,`font-weight:600;color:var(${l.resultado>=0?'--green':'--red'})`)}${td(ent?fmtPct(l.resultado/ent):'—',1)}</tr>`; }),
+        `<tr>${td('Total')}${td(fmtV(t('mensal')),1)}${td(fmtV(t('outras')),1)}${td(fmtV(t('despesas')),1)}${td(fmtV(tr),1,`color:var(${tr>=0?'--green':'--red'})`)}${td(entradas?fmtPct(tr/entradas):'—',1)}</tr>`);
+  }
+  else if(finAba==='atrasos'){
+    const ar=new Map((_finDados.aReceber||[]).map(g=>[g.mes_ref,g]));
+    const A=L.map(l=>({ mr:l.mr, valor:Number(l.m.atrasado||0), cli:l.m.clientes_atrasados||0, aberto:Number(l.m.em_aberto||0), fat:Number(l.m.total||0) }));
+    const tv=A.reduce((s,a)=>s+a.valor,0), tc=A.reduce((s,a)=>s+a.cli,0), ta=A.reduce((s,a)=>s+a.aberto,0);
+    const ant=(_finDados.aReceber||[]).filter(g=>g.mes_ref<document.getElementById('fin-de').value).reduce((s,g)=>s+Number(g.vencido||0),0);
+    html=head('Mensalidades em atraso por mês de referência', 'Clique em um mês para ver quem está devendo.'+(ant?` Antes do período ainda há <b style="color:var(--red)">${fmtV(ant)}</b> em atraso.`:''))
+      +finBarras(A.map(a=>({rot:finMesCurto(a.mr),v:a.valor,tip:`${fmtMesRef(a.mr)}\nEm atraso: ${fmtV(a.valor)}\n${a.cli} cliente(s)`})),'vermelho')
+      +finTabela([{t:'Mês de referência'},{t:'Clientes em atraso',n:1},{t:'Valor em atraso',n:1},{t:'A vencer',n:1},{t:'% do faturado',n:1}],
+        A.map(a=>{
+          const g=ar.get(a.mr), itens=g?g.itens.filter(i=>i.status==='vencido'):[];
+          const lista=itens.length?`<tr class="fin-sub" id="fa-${a.mr}" style="display:none"><td colspan="5"><div class="fin-sub-list">${itens.map(i=>`
+            <div class="fin-sub-item"><span class="cli-link" onclick="abrirHist('${i.cliente_id}','${esc(i.cliente_nome)}')">${escH(i.cliente_nome)}</span>
+              <span class="fin-sub-meta">${escH(i.servidor||'')} · venc. ${fmtD(i.vencimento)} · <b style="color:var(--red)">${i.dias_atraso}d</b> · ${fmtV(i.valor)}</span>
+              <span class="btn-group"><button class="btn btn-sm btn-success" onclick="abrirPag('${i.id}','${esc(i.cliente_nome)}','${esc(i.servidor||'')}','${i.vencimento}','${a.mr}',${i.valor},'${i.cliente_id}')"><i class="ti ti-check"></i> Pago</button>
+              <button class="btn btn-sm btn-wapp" onclick="abrirWapp('${i.cliente_id}','vencido')"><i class="ti ti-brand-whatsapp"></i></button></span></div>`).join('')}</div></td></tr>`:'';
+          return `<tr${itens.length?` class="fin-click" onclick="const r=document.getElementById('fa-${a.mr}');r.style.display=r.style.display==='none'?'':'none'"`:''}>${td((itens.length?'<i class="ti ti-chevron-down" style="font-size:12px;margin-right:4px;color:var(--muted)"></i>':'')+fmtMesRef(a.mr))}${td(a.cli||'—',1)}${td(a.valor?fmtV(a.valor):'—',1,a.valor?'font-weight:600;color:var(--red)':'')}${td(a.aberto?fmtV(a.aberto):'—',1)}${td(a.fat?fmtPct(a.valor/a.fat):'—',1)}</tr>${lista}`;
+        }),
+        `<tr>${td('Total')}${td(tc,1)}${td(fmtV(tv),1,'color:var(--red)')}${td(fmtV(ta),1)}${td('',1)}</tr>`);
+  }
+  else if(finAba==='servidores'){
+    const meses=L.slice(-12);
+    const srvs={}; meses.forEach(l=>Object.entries(l.m.ativos_servidor||{}).forEach(([s,c])=>srvs[s]=(srvs[s]||0)+c.ativos));
+    const nomes=Object.entries(srvs).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
+    if(!nomes.length){ html=head('Servidores mais usados por mês','')+'<div class="empty"><i class="ti ti-server"></i><p>Sem clientes no período.</p></div>'; }
+    else{
+      const cel=(l,s)=>(l.m.ativos_servidor||{})[s]?.ativos||0;
+      const totM=l=>nomes.reduce((t,s)=>t+cel(l,s),0);
+      const maxC=Math.max(1,...meses.flatMap(l=>nomes.map(s=>cel(l,s))));
+      const topo=l=>{ let b=null,v=0; nomes.forEach(s=>{ const c=cel(l,s); if(c>v){v=c;b=s;} }); return b; };
+      const ult=[...meses].reverse().find(l=>totM(l)>0)||meses.at(-1);
+      const tu=totM(ult)||1;
+      const barras=nomes.filter(s=>cel(ult,s)>0).map(s=>{ const c=cel(ult,s); return `<div class="srv-bar"><div class="srv-bar-l"><span>${escH(s)}</span><span>${c} cliente(s) · ${fmtPct(c/tu)}</span></div><div class="srv-bar-t"><div style="width:${c/tu*100}%"></div></div></div>`; }).join('');
+      html=head('Servidores mais usados por mês','Clientes ativos (mensalidade do mês paga ou em aberto) em cada servidor. ★ = mais usado no mês.')
+        +`<div class="srv-wrap"><div class="srv-ult"><div class="srv-ult-t">${fmtMesRef(ult.mr)}</div>${barras}</div>
+          <div class="table-wrap srv-mat"><table class="fin-tab"><thead><tr><th>Servidor</th>${meses.map(l=>`<th class="n">${finMesCurto(l.mr)}</th>`).join('')}</tr></thead><tbody>
+          ${nomes.map(s=>`<tr>${td(escH(s))}${meses.map(l=>{ const c=cel(l,s), top=c&&topo(l)===s; return `<td class="n" style="background:rgba(79,142,247,${(c/maxC*0.45).toFixed(2)});${top?'font-weight:700;color:#fff':''}" title="${escH(s)} — ${fmtMesRef(l.mr)}: ${c} cliente(s)${totM(l)?' ('+fmtPct(c/totM(l))+')':''}">${c?(top?'★ ':'')+c:'<span style="color:var(--muted)">—</span>'}</td>`; }).join('')}</tr>`).join('')}
+          </tbody><tfoot><tr>${td('Total')}${meses.map(l=>td(totM(l)||'—',1)).join('')}</tr></tfoot></table></div></div>`;
+    }
+  }
+  box.innerHTML=`<div class="card-body">${html}</div>`;
 }
 
 function csSoMes(){

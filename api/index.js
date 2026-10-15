@@ -210,7 +210,13 @@ async function gravarCliente(op, row, id){
 // Dia de cobrança só é guardado quando diferente do vencimento da lista
 function diaCobrancaOuNull(v, dia){ const n=parseInt(v); if(!(n>=1&&n<=31)) return null; return n===parseInt(dia)?null:n; }
 function hojeBR(){ return new Date(Date.now()-3*3600*1000).toISOString().slice(0,10); } // horário de Brasília
-function primeiroNome(n){ const t=String(n||'').replace(/^\S*\d\S*\s*-\s*/,'').trim().split(/\s+/)[0]||n; return t.charAt(0).toUpperCase()+t.slice(1).toLowerCase(); }
+function primeiroNome(n){
+  // "Renata5569 (cunhada)" -> "Renata"; "Lee002 - Alessandra Santos" -> "Alessandra"
+  const palavras=String(n||'').replace(/^\S*\d\S*\s*-\s*/,'').replace(/[()]/g,' ').trim().split(/\s+/);
+  let t=''; for(const p of palavras){ t=p.replace(/\d+/g,'').replace(/[^A-Za-zÀ-ÿ'-]/g,''); if(t.length>=2) break; }
+  t=t||String(n||'').trim();
+  return t.charAt(0).toUpperCase()+t.slice(1).toLowerCase();
+}
 function nomeMes(mr){ const [a,m]=mr.split('-'); return ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][parseInt(m)-1]+'/'+a; }
 const MSG_LEMBRETE_PADRAO={
   mesma_antes:   'Olá {nome}! Passando para lembrar que sua mensalidade de {mes} (R$ {valor}) vence em {vencimento}.\n\nPix: {pix}\n\nQualquer dúvida estou à disposição!',
@@ -1157,7 +1163,8 @@ export default async function handler(req, res) {
     if (!cliente) return err(res,'Cliente não encontrado',404);
     const tipo = params.tipo||'pendente';
     const { data:parcelas } = await sb.from('movimentos_financeiros').select('*').eq('cliente_id',id).eq('status',tipo==='vencido'?'vencido':'pendente').order('vencimento');
-    if (!parcelas.length) return res.json({ vazio:true, tipo });
+    const infoCli={ cliente_nome:cliente.nome, apelido:cliente.apelido||'', nome_usado:nomeMensagem(cliente), celular:cliente.celular||'' };
+    if (!parcelas.length) return res.json({ vazio:true, tipo, ...infoCli, tel:(cliente.celular||'').replace(/\D/g,'') });
     const total = parcelas.reduce((s,c)=>s+parseFloat(c.valor),0);
     const lista = parcelas.map((c,i)=>`  ${i+1}. Venc. ${fmtData(c.vencimento)} — R$ ${fmtValor(c.valor)}`).join('\n');
     const { data:cfgRow } = await sb.from('configuracoes').select('valor').eq('chave',`msg_${tipo}`).single();
@@ -1166,7 +1173,7 @@ export default async function handler(req, res) {
       .replace(/{nome}/g,nomeMensagem(cliente)).replace(/{qtd}/g,String(parcelas.length))
       .replace(/{total}/g,fmtValor(total)).replace(/{lista}/g,lista)
       .replace(/{servidor}/g,cliente.servidor).replace(/{pix}/g,pixRow?.valor||'');
-    return res.json({ mensagem, tel:(cliente.celular||'').replace(/\D/g,''), tipo, qtd:parcelas.length, total });
+    return res.json({ mensagem, tel:(cliente.celular||'').replace(/\D/g,''), tipo, qtd:parcelas.length, total, ...infoCli });
   }
 
   // ─── TIPOS RECEITA ────────────────────────────────────────────

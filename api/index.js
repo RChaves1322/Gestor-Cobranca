@@ -172,6 +172,20 @@ function camposApp(body, upd){
   if (body.app_senha!==undefined) upd.app_senha=String(body.app_senha||'').trim()||null;
   return upd;
 }
+// Apelido (usado no WhatsApp) e nomes terceiros (contas que pagam pelo cliente)
+function listaNomes(v){
+  const arr=Array.isArray(v)?v:String(v||'').split(/[\n;]+/);
+  const vistos=new Set(), out=[];
+  for(const n of arr){ const t=String(n||'').replace(/\s+/g,' ').trim(); const k=t.toLowerCase();
+    if(t && !vistos.has(k)){ vistos.add(k); out.push(t); } }
+  return out;
+}
+function camposExtras(body, upd){
+  if (body.apelido!==undefined)         upd.apelido=String(body.apelido||'').trim()||null;
+  if (body.nomes_terceiros!==undefined) upd.nomes_terceiros=listaNomes(body.nomes_terceiros);
+  return upd;
+}
+function nomeMensagem(c){ return (c && String(c.apelido||'').trim()) || primeiroNome(c?.nome); }
 // Grava em clientes ignorando colunas que ainda não existem (migração não rodada)
 async function gravarCliente(op, row, id){
   const r={...row};
@@ -180,7 +194,7 @@ async function gravarCliente(op, row, id){
     const { data, error } = await q.select().single();
     const m = error && String(error.message||'').match(/'([a-z_]+)' column|column "?([a-z_]+)"? (?:of relation|does not exist)/);
     const col = m && (m[1]||m[2]);
-    if (col && col in r && ['dia_cobranca','app','app_login','app_senha'].includes(col)) { delete r[col]; continue; }
+    if (col && col in r && ['dia_cobranca','app','app_login','app_senha','apelido','nomes_terceiros'].includes(col)) { delete r[col]; continue; }
     return { data, error };
   }
   return { data:null, error:{ message:'falha ao gravar cliente' } };
@@ -336,7 +350,7 @@ export default async function handler(req, res) {
       const montar=comApp=>{
         let q = sb.from('clientes').select('*').order('nome');
         if (params.status) q = q.eq('status', params.status);
-        if (params.busca)  q = q.or(`nome.ilike.%${params.busca}%,servidor.ilike.%${params.busca}%${comApp?`,app_login.ilike.%${params.busca}%,app.ilike.%${params.busca}%`:''}`);
+        if (params.busca)  q = q.or(`nome.ilike.%${params.busca}%,servidor.ilike.%${params.busca}%${comApp?`,app_login.ilike.%${params.busca}%,app.ilike.%${params.busca}%,apelido.ilike.%${params.busca}%`:''}`);
         return q;
       };
       let { data, error } = await montar(true);
@@ -352,7 +366,7 @@ export default async function handler(req, res) {
         dia_cobranca:diaCobrancaOuNull(body.dia_cobranca, dia),
         criado:new Date().toISOString()
       };
-      camposApp(body, novo);
+      camposApp(body, novo); camposExtras(body, novo);
       const { data, error } = await gravarCliente('insert', novo);
       if (error) return err(res, `Erro ao salvar cliente: ${error.message}`, 500);
       return res.json(data);
@@ -496,10 +510,20 @@ export default async function handler(req, res) {
       if (body.status!==undefined)   upd.status=body.status==='ativo'?'ativo':'inativo';
       if (body.obs!==undefined)      upd.obs=body.obs||'';
       if (body.dia_cobranca!==undefined) upd.dia_cobranca=diaCobrancaOuNull(body.dia_cobranca, body.dia);
-      camposApp(body, upd);
+      camposApp(body, upd); camposExtras(body, upd);
+      // Acrescenta nomes terceiros sem apagar os que já existem (usado no pagamento)
+      if (body.nomes_terceiros_add!==undefined) {
+        const { data:atual } = await sb.from('clientes').select('*').eq('id',id).single();
+        upd.nomes_terceiros=listaNomes([...(atual?.nomes_terceiros||[]), ...listaNomes(body.nomes_terceiros_add)]);
+      }
       if (!Object.keys(upd).length) return err(res,'Nada para atualizar');
       const { data, error } = await gravarCliente('update', upd, id);
       if (error) return err(res, `Erro ao atualizar cliente: ${error.message}`, 500);
+      return res.json(data);
+    }
+    if (req.method === 'GET') {
+      const { data, error } = await sb.from('clientes').select('*').eq('id',id).single();
+      if (error || !data) return err(res,'Cliente não encontrado',404);
       return res.json(data);
     }
     if (req.method === 'DELETE') {
@@ -528,7 +552,7 @@ export default async function handler(req, res) {
     const [pg, jaImp, cls, abertos] = await Promise.all([
       tabelaOpcional('extrato_pagadores','*'),
       tabelaOpcional('extrato_lancamentos','fitid', q=>q.in('fitid', lancs.map(l=>l.fitid).slice(0,1000))),
-      selectAll('clientes','id,nome,servidor,valor,dia,status'),
+      selectAll('clientes','*'),
       selectAll('movimentos_financeiros','id,cliente_id,mes_ref,status,valor,valor_pago,pago_em,origem', q=>q.in('status',['pendente','vencido','pago']).order('id'))
     ]);
     if (pg.faltaTabela || jaImp.faltaTabela) return err(res,'Rode o arquivo MIGRACAO_EXTRATO.sql no Supabase antes de importar extratos.');
@@ -539,6 +563,11 @@ export default async function handler(req, res) {
     const movsPorCliente=new Map();
     for(const m of (abertos.data||[])){ if(!movsPorCliente.has(m.cliente_id)) movsPorCliente.set(m.cliente_id,[]); movsPorCliente.get(m.cliente_id).push(m); }
     const tokensCli=clientes.map(c=>({ c, t:new Set(tokensNome(c.nome)) }));
+    // Nomes terceiros: contas que costumam pagar por um cliente
+    const terceiros=[];
+    for(const c of clientes) for(const n of (Array.isArray(c.nomes_terceiros)?c.nomes_terceiros:[])){
+      const t=tokensNome(n); if(t.length) terceiros.push({ c, t });
+    }
 
     const mesHoje=new Date().toISOString().slice(0,7);
     const mesesSugeridos=(cid)=>{
@@ -568,6 +597,15 @@ export default async function handler(req, res) {
         it.tipo=conhecido.destino==='cliente'?'':(conhecido.tipo||''); it.servidor=conhecido.servidor||'';
       } else if (l.investimento) {
         it.destino='ignorar';
+      } else if (l.valor>0 && (()=>{
+        // Pagador cadastrado como "nome terceiro" de um cliente (todas as palavras batem)
+        const tk=new Set(tokensNome(l.nome));
+        const achou=terceiros.filter(x=>x.t.every(w=>tk.has(w)) && (x.t.length>=2 || tk.size===1));
+        const ids=[...new Set(achou.map(x=>x.c.id))];
+        if (ids.length===1) { it.destino='cliente'; it.cliente_id=ids[0]; it.sugerido=true; it.por_terceiro=true; return true; }
+        return false;
+      })()) {
+        // reconhecido pelo nome terceiro
       } else if (l.valor>0) {
         // Sugere clientes pelo nome (palavras em comum com o cadastro)
         const tk=tokensNome(l.nome);
@@ -1071,7 +1109,7 @@ export default async function handler(req, res) {
         const diasAtraso=Math.max(0,diff(hoje,ref));
         const tpl = conf[`msg_r_${mesma?'mesma':'dif'}_${atual.etapa}`] || MSG_LEMBRETE_PADRAO[`${mesma?'mesma':'dif'}_${atual.etapa}`];
         const mensagem=String(tpl||'')
-          .replace(/{nome}/g, primeiroNome(c.nome)).replace(/{nome_completo}/g, c.nome)
+          .replace(/{nome}/g, nomeMensagem(c)).replace(/{nome_completo}/g, c.nome)
           .replace(/{valor}/g, fmtValor(valor)).replace(/{vencimento}/g, fmtData(venc)).replace(/{cobranca}/g, fmtData(cob))
           .replace(/{mes}/g, nomeMes(mr)).replace(/{servidor}/g, c.servidor||'').replace(/{pix}/g, conf.pix||'')
           .replace(/{dias}/g, String(diasAtraso));
@@ -1107,7 +1145,7 @@ export default async function handler(req, res) {
     const { data:cfgRow } = await sb.from('configuracoes').select('valor').eq('chave',`msg_${tipo}`).single();
     const { data:pixRow } = await sb.from('configuracoes').select('valor').eq('chave','pix').single();
     const mensagem = (cfgRow?.valor||'')
-      .replace(/{nome}/g,cliente.nome).replace(/{qtd}/g,String(parcelas.length))
+      .replace(/{nome}/g,nomeMensagem(cliente)).replace(/{qtd}/g,String(parcelas.length))
       .replace(/{total}/g,fmtValor(total)).replace(/{lista}/g,lista)
       .replace(/{servidor}/g,cliente.servidor).replace(/{pix}/g,pixRow?.valor||'');
     return res.json({ mensagem, tel:(cliente.celular||'').replace(/\D/g,''), tipo, qtd:parcelas.length, total });

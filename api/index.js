@@ -998,7 +998,15 @@ export default async function handler(req, res) {
             return [k,{ativos:v.todos.size,pagos:v.todos.size-abertos,abertos}];
           }));
         })(),
-        qtd_recebimentos:recebMes.length, qtd_recebimentos_sem_data:recebSemData.length
+        qtd_recebimentos:recebMes.length, qtd_recebimentos_sem_data:recebSemData.length,
+        // Relatórios: receitas por tipo, despesas por tipo e atrasos do mês de referência
+        qtd_outras:ovs.length,
+        outras_por_tipo:ovs.reduce((o,r)=>{ const t=r.tipo_rec||'Outras'; o[t]=(o[t]||0)+parseFloat(r.total||0); return o; },{}),
+        qtd_despesas:dps.length,
+        despesas_por_tipo:dps.reduce((o,r)=>{ const t=r.tipo||'Outras'; o[t]=(o[t]||0)+parseFloat(r.total||0); return o; },{}),
+        qtd_atrasado:cobsMes.filter(c=>c.status==='vencido').length,
+        clientes_atrasados:new Set(cobsMes.filter(c=>c.status==='vencido').map(c=>c.cliente_id)).size,
+        qtd_em_aberto:cobsMes.filter(c=>c.status==='pendente').length
       });
     }
     const campos=['recebido','antecipado','qtd_antecipado','recebido_atrasado','despesas','receita_total','lucro_liquido',

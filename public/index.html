@@ -159,6 +159,12 @@ tbody tr:hover td{background:var(--bg3)}
 .pag-info-nome{font-weight:600;font-size:15px;margin-bottom:3px}
 .pag-info-sub{font-size:12px;color:var(--muted)}
 #ov-pagamento .modal.multi{max-width:660px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.chips:empty{display:none}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:99px;padding:3px 6px 3px 11px;font-size:12px}
+.chip button{background:none;border:none;color:var(--muted);cursor:pointer;padding:0 2px;font-size:14px;line-height:1}
+.chip button:hover{color:var(--red)}
+.chip-add{display:flex;gap:6px}.chip-add input{flex:1}
 .pp-wrap{border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:1.25rem;overflow:hidden}
 .pp-head{display:flex;justify-content:space-between;align-items:center;padding:.6rem .875rem;background:var(--bg3);font-size:12px;color:var(--muted)}
 .pp-row{display:grid;grid-template-columns:24px 1fr 100px auto;gap:10px;align-items:center;padding:.6rem .875rem;border-top:1px solid var(--border)}
@@ -911,8 +917,10 @@ tbody tr:hover td{background:var(--bg3)}
     <div class="modal-title" id="mc-title">Novo cliente</div>
     <div class="form-grid">
       <div class="form-group full"><label class="form-label">Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
+      <div class="form-group"><label class="form-label">Apelido</label><input id="f-apelido" placeholder="Como chamar no WhatsApp">
+        <div class="form-hint">Usado no lugar do nome nas mensagens.</div></div>
       <div class="form-group"><label class="form-label">Celular (com DDD)</label><input id="f-cel" placeholder="11999990000"></div>
-      <div class="form-group"><label class="form-label">Servidor *</label>
+      <div class="form-group full"><label class="form-label">Servidor *</label>
         <select id="f-servidor"><option value="">Selecione...</option></select>
       </div>
       <div class="form-group"><label class="form-label">Dia de vencimento da lista *</label><input id="f-dia" type="number" min="1" max="31" placeholder="1–31"></div>
@@ -926,6 +934,10 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="form-group" id="fg-app-senha" style="display:none"><label class="form-label" id="lb-app-senha">Key</label>
         <div style="display:flex;gap:4px"><input id="f-app-senha" type="password" autocomplete="new-password" spellcheck="false" style="flex:1">
         <button type="button" class="btn btn-sm" onclick="const i=document.getElementById('f-app-senha');i.type=i.type==='password'?'text':'password'" title="Mostrar/ocultar"><i class="ti ti-eye"></i></button></div></div>
+      <div class="form-group full"><label class="form-label">Nomes terceiros <span style="font-size:10px;color:var(--muted)">(contas que pagam por este cliente)</span></label>
+        <div class="chips" id="f-terc-chips"></div>
+        <div class="chip-add"><input id="f-terc-in" placeholder="Nome de quem paga (ex.: Maria da Silva)" onkeydown="if(event.key==='Enter'){event.preventDefault();chipAdd('f')}">
+        <button type="button" class="btn btn-sm" onclick="chipAdd('f')"><i class="ti ti-plus"></i> Adicionar</button></div></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="f-obs" placeholder="Opcional"></div>
     </div>
     <div class="form-actions">
@@ -950,7 +962,12 @@ tbody tr:hover td{background:var(--bg3)}
     <div class="form-grid">
       <div class="form-group" id="p-data-grp"><label class="form-label">Data do pagamento *</label><input type="date" id="p-data"></div>
       <div class="form-group" id="p-valor-grp"><label class="form-label">Valor recebido (R$) *</label><input type="number" step="0.01" id="p-valor"></div>
+      <div class="form-group full" id="p-cel-grp" style="display:none"><label class="form-label">Celular (com DDD) <span style="font-size:10px;color:var(--amber)">(cliente sem telefone — será salvo no cadastro)</span></label><input id="p-cel" placeholder="11999990000" inputmode="tel"></div>
       <div class="form-group full"><label class="form-label">Servidor <span style="font-size:10px;color:var(--muted)">(alterar atualiza o cadastro do cliente)</span></label><select id="p-servidor"></select></div>
+      <div class="form-group full"><label class="form-label">Nomes terceiros <span style="font-size:10px;color:var(--muted)">(quem pagou por este cliente — fica no cadastro)</span></label>
+        <div class="chips" id="p-terc-chips"></div>
+        <div class="chip-add"><input id="p-terc-in" placeholder="Nome da conta que pagou" onkeydown="if(event.key==='Enter'){event.preventDefault();chipAdd('p')}">
+        <button type="button" class="btn btn-sm" onclick="chipAdd('p')"><i class="ti ti-plus"></i> Adicionar</button></div></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="p-obs" placeholder="Opcional"></div>
     </div>
     <div class="form-actions">
@@ -2432,6 +2449,8 @@ async function openClienteModal(id){
       f('mc-title').textContent='Editar cliente';
       f('f-nome').value=c.nome;
       f('f-cel').value=c.celular||'';
+      f('f-apelido').value=c.apelido||'';
+      _terc.f=Array.isArray(c.nomes_terceiros)?[...c.nomes_terceiros]:[];
       f('f-servidor').value=c.servidor;
       f('f-dia').value=c.dia;
       f('f-dia-cob').value=c.dia_cobranca&&c.dia_cobranca!==c.dia?c.dia_cobranca:'';
@@ -2448,6 +2467,8 @@ async function openClienteModal(id){
     f('mc-title').textContent='Novo cliente';
     f('f-nome').value='';
     f('f-cel').value='';
+    f('f-apelido').value='';
+    _terc.f=[];
     f('f-servidor').value='';
     f('f-dia').value='';
     f('f-dia-cob').value='';
@@ -2458,6 +2479,7 @@ async function openClienteModal(id){
     f('f-id').value='';
   }
   f('f-app-senha').type='password';
+  f('f-terc-in').value=''; chipRender('f');
   atualizarCamposApp();
   openOv('ov-cliente');
 }
@@ -2501,7 +2523,9 @@ async function salvarCliente(){
 
   const body={
     nome,
-    celular: g('f-cel'),
+    celular: normTel(g('f-cel')),
+    apelido: g('f-apelido'),
+    nomes_terceiros: chipLista('f'),
     servidor,
     dia: diaNum,
     dia_cobranca: (()=>{ const n=parseInt(g('f-dia-cob')); return n>=1&&n<=31&&n!==diaNum?n:null; })(),
@@ -3077,12 +3101,41 @@ async function toggleSt(id,status){
   }catch{toast('Erro','err');}
 }
 
+/* ── NOMES TERCEIROS (chips) ── */
+// 'f' = formulário do cliente, 'p' = janela de pagamento
+const _terc={f:[],p:[]};
+function chipRender(k){
+  document.getElementById(k+'-terc-chips').innerHTML=_terc[k].map((n,i)=>
+    `<span class="chip">${escH(n)}<button type="button" title="Remover" onclick="chipDel('${k}',${i})">×</button></span>`).join('');
+}
+function chipAdd(k){
+  const inp=document.getElementById(k+'-terc-in');
+  const v=inp.value.replace(/\s+/g,' ').trim();
+  if(v && !_terc[k].some(x=>x.toLowerCase()===v.toLowerCase())) _terc[k].push(v);
+  inp.value=''; inp.focus(); chipRender(k);
+}
+function chipDel(k,i){ _terc[k].splice(i,1); chipRender(k); }
+// Inclui o que ficou digitado e não foi "adicionado"
+function chipLista(k){ const inp=document.getElementById(k+'-terc-in'); if(inp.value.trim()) chipAdd(k); return [..._terc[k]]; }
+function normTel(v){ let d=String(v||'').replace(/\D/g,''); if(d.length>11 && d.startsWith('55')) d=d.slice(2); return d; }
+
 /* ── PAGAMENTO ── */
 // Ao clicar em "Pago", mostra todas as parcelas em aberto (vencidas e pendentes)
 // do cliente para escolher quais acertar, com opção de anular alguma.
 let _pag={parcelas:[],clienteId:null,clicada:null};
 async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
-  _pag={parcelas:[],clienteId:clienteId||null,clicada:id};
+  _pag={parcelas:[],clienteId:clienteId||null,clicada:id,cliente:null,tercIni:[]};
+  _terc.p=[]; chipRender('p'); document.getElementById('p-terc-in').value='';
+  document.getElementById('p-cel').value=''; document.getElementById('p-cel-grp').style.display='none';
+  if(clienteId){
+    try{
+      const c=await api('GET',`/api/clientes/${clienteId}`);
+      _pag.cliente=c;
+      _terc.p=Array.isArray(c.nomes_terceiros)?[...c.nomes_terceiros]:[];
+      _pag.tercIni=[..._terc.p]; chipRender('p');
+      if(!normTel(c.celular)) document.getElementById('p-cel-grp').style.display='';
+    }catch(e){}
+  }
   document.getElementById('p-id').value=id;
   document.getElementById('p-nome').textContent=nome;
   document.getElementById('p-serv').textContent=serv||'';
@@ -3184,6 +3237,21 @@ async function confirmarPag(){
     itens=[{id:document.getElementById('p-id').value,valor_pago:parseFloat(document.getElementById('p-valor').value)}];
   }
   if(!pago_em||itens.some(x=>isNaN(x.valor_pago))){toast('Informe a data e o valor','err');return;}
+  // Telefone (se o cliente não tinha) e nomes terceiros vão para o cadastro
+  if(_pag.clienteId && _pag.cliente){
+    const upd={};
+    const cel=normTel(document.getElementById('p-cel').value);
+    if(document.getElementById('p-cel-grp').style.display!=='none' && cel){
+      if(cel.length<10){toast('Celular inválido: informe DDD + número','err');return;}
+      upd.celular=cel;
+    }
+    const terc=chipLista('p');
+    if(JSON.stringify(terc)!==JSON.stringify(_pag.tercIni)) upd.nomes_terceiros=terc;
+    if(Object.keys(upd).length){
+      try{ await api('PUT',`/api/clientes/${_pag.clienteId}`,upd); }
+      catch{ toast('Não consegui salvar telefone/nomes no cadastro','err'); return; }
+    }
+  }
   let ok=0;
   try{
     for(const it of itens){

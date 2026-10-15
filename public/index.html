@@ -891,21 +891,6 @@ tbody tr:hover td{background:var(--bg3)}
     <!-- CADASTROS GERAIS -->
     <div id="page-cadastros" class="page">
 
-      <!-- ZONA DE PERIGO -->
-      <div class="card" style="border-color:var(--red)">
-        <div class="card-header" style="border-color:var(--red)">
-          <span class="card-title" style="color:var(--red)"><i class="ti ti-alert-triangle" style="margin-right:6px"></i>Zona de perigo — Ações irreversíveis</span>
-        </div>
-        <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-          <div>
-            <div style="font-size:13px;font-weight:600;margin-bottom:3px">Limpar clientes e cobranças</div>
-            <div style="font-size:12px;color:var(--muted)">Remove todos os clientes e cobranças. Servidores, receitas, despesas e configurações são mantidos.</div>
-          </div>
-          <button class="btn btn-danger" onclick="limparClientesCobr()">
-            <i class="ti ti-trash"></i> Limpar clientes e cobranças
-          </button>
-        </div>
-      </div>
       <div class="card">
         <div class="card-header">
           <span class="card-title"><i class="ti ti-server" style="margin-right:6px"></i>Servidores</span>
@@ -1720,18 +1705,16 @@ const PAGES=['dashboard','clientes','cobrancas','inadimplentes','financeiro','ou
 const TITLES={dashboard:'Painel',clientes:'Clientes',cobrancas:'Cobranças',inadimplentes:'Inadimplentes',financeiro:'Financeiro','outras-vendas':'Receitas',despesas:'Despesas',cadastros:'Cadastros Gerais',configuracoes:'Configurações'};
 const ACTIONS={
   dashboard:  ()=>`<button class="btn btn-primary" onclick="gerarMes()"><i class="ti ti-refresh"></i> Gerar cobranças do mês</button>`,
-  clientes:   ()=>`<div class="btn-group"><button class="btn btn-amber" onclick="gerarTeste()"><i class="ti ti-test-pipe"></i> Dados de teste</button><button class="btn btn-purple" onclick="abrirImportarIPTV()"><i class="ti ti-table-import"></i> Importar planilha</button><button class="btn" onclick="abrirExportar()" title="Baixar backup em Excel"><i class="ti ti-file-download"></i> Exportar planilha</button><button class="btn" onclick="abrirMesclar()" title="Juntar dois cadastros do mesmo cliente"><i class="ti ti-git-merge"></i> Juntar clientes</button><button class="btn btn-primary" onclick="openClienteModal()"><i class="ti ti-plus"></i> Novo cliente</button></div>`,
+  clientes:   ()=>`<div class="btn-group"><button class="btn btn-purple" onclick="abrirImportarIPTV()"><i class="ti ti-table-import"></i> Importar planilha</button><button class="btn" onclick="abrirExportar()" title="Baixar backup em Excel"><i class="ti ti-file-download"></i> Exportar planilha</button><button class="btn" onclick="abrirMesclar()" title="Juntar dois cadastros do mesmo cliente"><i class="ti ti-git-merge"></i> Juntar clientes</button><button class="btn btn-primary" onclick="openClienteModal()"><i class="ti ti-plus"></i> Novo cliente</button></div>`,
   cobrancas:  ()=>`<div class="btn-group"><button class="btn btn-wapp" onclick="abrirLembretes()" title="Lembretes de cobrança para enviar hoje"><i class="ti ti-bell-ringing"></i> Lembretes <span id="lem-badge" style="display:none;margin-left:4px;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px"></span></button><button class="btn" onclick="abrirExtrato()" title="Dar baixa pelos PIX do extrato do banco"><i class="ti ti-building-bank"></i> Importar extrato</button><button class="btn btn-purple" onclick="abrirLote()"><i class="ti ti-layer-group"></i> Receber em lote</button><button class="btn btn-primary" onclick="gerarMes()"><i class="ti ti-refresh"></i> Gerar cobranças do mês</button></div>`,
   inadimplentes:()=>'', cadastros:()=>'', configuracoes:()=>'',
   financeiro:()=>`<button class="btn" onclick="abrirExtrato()" title="Importar extrato OFX do banco"><i class="ti ti-building-bank"></i><span> Importar extrato</span></button> <button class="btn" id="btn-olho-valores" onclick="alternarValores()" title="Mostrar/ocultar valores"><i class="ti ti-eye-off"></i><span> Mostrar valores</span></button>`,
   'outras-vendas':()=>`<div class="btn-group">
     <button class="btn btn-sm" onclick="ovAbrirImportar()"><i class="ti ti-file-upload"></i> Importar dados</button>
-    <button class="btn btn-sm btn-danger" onclick="ovLimparTudo()"><i class="ti ti-trash"></i> Limpar tudo</button>
     <button class="btn btn-primary" onclick="ovAbrirNovo()"><i class="ti ti-plus"></i> Nova receita</button>
   </div>`,
   despesas:()=>`<div class="btn-group">
     <button class="btn btn-sm" onclick="dpAbrirImportar()"><i class="ti ti-file-upload"></i> Importar dados</button>
-    <button class="btn btn-sm btn-danger" onclick="dpLimparTudo()"><i class="ti ti-trash"></i> Limpar tudo</button>
     <button class="btn btn-primary" onclick="dpAbrirNovo()"><i class="ti ti-plus"></i> Nova despesa</button>
   </div>`,
 };
@@ -3789,16 +3772,6 @@ function inserirVar(fieldId,variavel){
   el.focus();
 }
 
-/* ── SEED ── */
-async function gerarTeste(){
-  if(!confirm('Isso vai substituir todos os dados. Continuar?'))return;
-  try{
-    await api('POST','/api/seed');
-    toast('Dados de teste gerados!');
-    renderClientes();
-  }catch{toast('Erro ao gerar dados','err');}
-}
-
 /* ── RECEBIMENTO EM LOTE ── */
 let loteStep = 1;
 let loteClienteId = null;
@@ -5122,17 +5095,6 @@ async function iptvConfirmar(){
   }
 }
 
-async function limparClientesCobr(){
-  if(!confirm('⚠️ Isso vai APAGAR todos os clientes e cobranças permanentemente.\n\nTem certeza?')) return;
-  if(!confirm('Confirmação final: apagar tudo mesmo?')) return;
-  try{
-    await api('DELETE','/api/limpar-clientes-cobrancas');
-    toast('Clientes e cobranças apagados.');
-    renderCadastros();
-    renderDash();
-  }catch(e){ toast('Erro ao limpar: '+e.message,'err'); }
-}
-
 async function normalizarServidores(){
   try{
     const r = await api('POST','/api/normalizar-servidores');
@@ -5142,23 +5104,6 @@ async function normalizarServidores(){
 }
 
 
-async function ovLimparTudo(){
-  if(!confirm('Apagar TODAS as receitas? Isso não pode ser desfeito.')) return;
-  try{
-    await api('DELETE','/api/outras-vendas/limpar');
-    toast('Receitas apagadas.');
-    renderOutrasVendas();
-  }catch(e){ toast('Erro ao limpar','err'); }
-}
-
-async function dpLimparTudo(){
-  if(!confirm('Apagar TODAS as despesas? Isso não pode ser desfeito.')) return;
-  try{
-    await api('DELETE','/api/despesas/limpar');
-    toast('Despesas apagadas.');
-    renderDespesas();
-  }catch(e){ toast('Erro ao limpar','err'); }
-}
 
 /* ── SIDEBAR MOBILE ── */
 function openSidebar(){

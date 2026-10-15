@@ -84,6 +84,21 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 /* ── FILTROS ── */
 .filter-bar{display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap;align-items:center}
 .filter-bar input,.filter-bar select{flex:1;min-width:100px}
+.busca-cob{position:relative;margin-bottom:8px}
+.busca-cob > i{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:18px;pointer-events:none}
+.busca-cob input{width:100%;padding:11px 40px 11px 42px;font-size:14px}
+.busca-cob button{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px 8px}
+.busca-cob button:hover{color:var(--text)}
+.vence-box input{flex:0 0 56px!important;min-width:0!important;width:56px!important}
+.vence-box{display:flex;align-items:center;gap:6px;background:var(--amber-bg);border:1px solid var(--amber);border-radius:var(--radius-sm);padding:5px 10px;flex-shrink:0}
+.cob-cli{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:.75rem;margin-bottom:.75rem}
+.cob-cli-head{font-size:12px;color:var(--muted);margin-bottom:8px}
+.cob-cli-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px}
+.cob-cli-item{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.55rem .75rem;cursor:pointer}
+.cob-cli-item:hover{border-color:var(--accent)}
+.cob-cli-nome{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cob-cli-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.cli-link{cursor:pointer}.cli-link:hover{color:var(--accent);text-decoration:underline}
 
 /* ── INPUTS ── */
 input,select,textarea{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--font);font-size:13px;padding:8px 10px;width:100%;outline:none;transition:border-color .15s}
@@ -545,6 +560,11 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- COBRANÇAS -->
     <div id="page-cobrancas" class="page active">
+      <div class="busca-cob">
+        <i class="ti ti-search"></i>
+        <input type="text" id="bcc" placeholder="Buscar cliente por nome ou apelido..." oninput="cobsBuscar()" autocomplete="off">
+        <button type="button" id="bcc-clear" onclick="cobsBuscaLimpar()" title="Limpar busca" style="display:none"><i class="ti ti-x"></i></button>
+      </div>
       <div class="filter-bar">
         <select id="fm" onchange="cobsLimparVencer();renderCobs()"></select>
         <select id="fs" onchange="cobsLimparVencer();renderCobs()">
@@ -554,8 +574,7 @@ tbody tr:hover td{background:var(--bg3)}
           <option value="vencido">Vencidas</option>
           <option value="cancelado">Canceladas</option>
         </select>
-        <input type="text" id="bcc" placeholder="Buscar cliente..." oninput="cobsLimparVencer();renderCobs()" style="max-width:170px">
-        <div style="display:flex;align-items:center;gap:6px;background:var(--amber-bg);border:1px solid var(--amber);border-radius:var(--radius-sm);padding:4px 10px;flex-shrink:0">
+        <div class="vence-box">
           <i class="ti ti-bell" style="color:var(--amber);font-size:15px"></i>
           <span style="font-size:12px;color:var(--amber);white-space:nowrap">Vence em</span>
           <input type="number" id="vencer-dias" min="1" max="60" value="7" style="width:52px;padding:3px 6px;font-size:12px;text-align:center;border-color:var(--amber)">
@@ -569,6 +588,7 @@ tbody tr:hover td{background:var(--bg3)}
         <span id="vencer-banner-txt"></span>
         <button onclick="cobsLimparVencer(true)" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--amber)"><i class="ti ti-x"></i></button>
       </div>
+      <div class="cob-cli" id="cobs-clientes" style="display:none"></div>
       <div class="card"><div class="table-wrap" id="cobs-table"><div class="loading">Carregando...</div></div></div>
     </div>
 
@@ -1768,7 +1788,42 @@ function filtrarProximosVencer(){
   // Limpar outros filtros para não conflitar
   const fs = document.getElementById('fs'); if(fs) fs.value = '';
   const bcc = document.getElementById('bcc'); if(bcc) bcc.value = '';
+  document.getElementById('bcc-clear').style.display='none';
+  const cc=document.getElementById('cobs-clientes'); if(cc){cc.style.display='none';cc.innerHTML='';}
   renderCobs(dias);
+}
+
+// Busca: filtra as cobranças do mês e lista os clientes encontrados (de todos os meses)
+let _cobsBuscaT=null, _cobsBuscaSeq=0;
+function cobsBuscar(){
+  document.getElementById('bcc-clear').style.display=document.getElementById('bcc').value?'':'none';
+  clearTimeout(_cobsBuscaT);
+  _cobsBuscaT=setTimeout(()=>{ cobsLimparVencer(); renderCobs(); cobsClientesBusca(); },250);
+}
+function cobsBuscaLimpar(){ const i=document.getElementById('bcc'); i.value=''; cobsBuscar(); i.focus(); }
+async function cobsClientesBusca(){
+  const box=document.getElementById('cobs-clientes');
+  const q=document.getElementById('bcc').value.trim();
+  const seq=++_cobsBuscaSeq;
+  if(q.length<2){ box.style.display='none'; box.innerHTML=''; return; }
+  const norm=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  try{
+    const todos=await api('GET',`/api/clientes?busca=${encodeURIComponent(q)}`);
+    if(seq!==_cobsBuscaSeq) return;
+    const nq=norm(q);
+    const achados=todos.filter(c=>norm(c.nome).includes(nq)||norm(c.apelido).includes(nq)
+      ||(Array.isArray(c.nomes_terceiros)&&c.nomes_terceiros.some(n=>norm(n).includes(nq))));
+    if(!achados.length){ box.style.display='none'; box.innerHTML=''; return; }
+    const mostrar=achados.slice(0,9);
+    box.innerHTML=`<div class="cob-cli-head">${achados.length} cliente(s) encontrado(s) — clique para ver os pagamentos${achados.length>9?' (mostrando 9)':''}</div>
+      <div class="cob-cli-list">${mostrar.map(c=>`
+        <div class="cob-cli-item" onclick="abrirHist('${c.id}','${esc(c.nome)}')">
+          <div style="min-width:0"><div class="cob-cli-nome" title="${escH(c.nome)}">${escH(c.nome)}</div>
+            <div class="cob-cli-sub">${[c.apelido?'Apelido: '+escH(c.apelido):'',escH(c.servidor||''),fmtV(c.valor)+' · dia '+c.dia,c.status==='ativo'?'':'<span style="color:var(--red)">inativo</span>'].filter(Boolean).join(' · ')}</div></div>
+          <span class="btn btn-sm" style="color:var(--accent);border-color:var(--accent);flex-shrink:0"><i class="ti ti-clock"></i> Pagamentos</span>
+        </div>`).join('')}</div>`;
+    box.style.display='';
+  }catch(e){ box.style.display='none'; }
 }
 
 function cobsLimparVencer(force){
@@ -1865,7 +1920,7 @@ async function renderCobs(vencerEmDias){
              : diasAteVenc <= 3  ? ` <span style="color:var(--amber);font-size:11px">${diasAteVenc}d</span>` : '')
             : '';
           return`<tr style="${destaque}">
-            <td style="font-weight:600">${cb.cliente_nome} <span class="badge badge-${cb.status}" style="margin-left:4px">${LBL[cb.status]}</span></td>
+            <td style="font-weight:600"><span class="cli-link" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Ver pagamentos do cliente">${cb.cliente_nome}</span> <span class="badge badge-${cb.status}" style="margin-left:4px">${LBL[cb.status]}</span></td>
             <td data-label="Servidor">${cb.servidor||'—'}</td>
             <td data-label="Venc.">${fmtD(cb.vencimento)}${vencLabel}</td>
             <td data-label="Pagto.">${cb.pago_em?fmtD(cb.pago_em):'—'}</td>

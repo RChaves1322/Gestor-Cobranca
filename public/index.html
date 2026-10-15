@@ -765,8 +765,8 @@ tbody tr:hover td{background:var(--bg3)}
           </div>
         </div>
         <div class="fin-visao">
-          <button id="fv-caixa" class="active" onclick="finSetVisao('caixa')" title="Pela data em que o dinheiro entrou"><i class="ti ti-cash"></i> Caixa</button>
-          <button id="fv-comp" onclick="finSetVisao('competencia')" title="Pelo mês de referência da mensalidade"><i class="ti ti-calendar-month"></i> Competência</button>
+          <button id="fv-caixa" onclick="finSetVisao('caixa')" title="Pela data em que o dinheiro entrou"><i class="ti ti-cash"></i> Caixa</button>
+          <button id="fv-comp" class="active" onclick="finSetVisao('competencia')" title="Pelo mês de referência da mensalidade"><i class="ti ti-calendar-month"></i> Competência</button>
         </div>
       </div>
       <div id="fin-visao-ajuda" class="fin-ajuda"></div>
@@ -2068,7 +2068,7 @@ function finAnoAtualAte(){ return `${new Date().getFullYear()}-12`; }
 
 let _finCache = null;
 
-let finVisao='caixa';
+let finVisao='competencia';
 function finSetVisao(v){
   finVisao=v;
   document.getElementById('fv-caixa')?.classList.toggle('active',v==='caixa');
@@ -2221,11 +2221,17 @@ async function renderFinAba(){
 
   if(finAba==='mensal'){
     const tot=L.reduce((s,l)=>s+l.mensal,0), cli=L.reduce((s,l)=>s+l.clientes,0);
-    html=head('Recebido bruto de mensalidades por mês', caixa?'Clientes = quem pagou no mês. Ticket médio = recebido ÷ clientes.':'Clientes = quem tem o mês de referência pago. Ticket médio = recebido ÷ clientes.')
-      +finBarras(L.map(l=>({rot:finMesCurto(l.mr),v:l.mensal,tip:`${fmtMesRef(l.mr)}\nRecebido: ${fmtV(l.mensal)}\n${l.clientes} cliente(s)`})),'azul')
-      +finTabela([{t:'Mês'},{t:'Clientes',n:1},{t:'Recebido bruto',n:1},{t:'Ticket médio',n:1}],
-        L.map(l=>`<tr>${td(fmtMesRef(l.mr))}${td(l.clientes,1)}${td(fmtV(l.mensal),1)}${td(l.clientes?fmtV(l.mensal/l.clientes):'—',1)}</tr>`),
-        `<tr>${td('Total')}${td(cli,1)}${td(fmtV(tot),1)}${td(cli?fmtV(tot/cli):'—',1)}</tr>`);
+    const at=l=>Number(l.m.clientes_ref||0), pg=l=>Number(l.m.clientes_ref_pagos||0);
+    const sAt=L.reduce((s,l)=>s+at(l),0), sPg=L.reduce((s,l)=>s+pg(l),0);
+    const cab=[{t:'Mês'},{t:'Ativos (Sim+Não)',n:1},{t:'Pagos (Sim)',n:1},{t:'Em aberto (Não)',n:1},
+      ...(caixa?[{t:'Pagaram no mês',n:1}]:[]),{t:caixa?'Recebido no mês':'Recebido bruto',n:1},{t:'Ticket médio',n:1}];
+    html=head('Recebido bruto de mensalidades por mês', caixa
+        ?'Caixa: recebido pela data do pagamento. "Pagaram no mês" = clientes que pagaram dentro do mês (quem paga vários meses de uma vez conta só no mês em que pagou).'
+        :'Competência: cada mensalidade conta no mês a que se refere — igual aos "Sim" da planilha. Ticket médio = recebido ÷ pagos.')
+      +finBarras(L.map(l=>({rot:finMesCurto(l.mr),v:l.mensal,tip:`${fmtMesRef(l.mr)}\nRecebido: ${fmtV(l.mensal)}\nAtivos: ${at(l)} · Pagos: ${pg(l)} · Em aberto: ${at(l)-pg(l)}`})),'azul')
+      +finTabela(cab,
+        L.map(l=>`<tr>${td(fmtMesRef(l.mr))}${td(at(l)||'—',1)}${td(pg(l)||'—',1,'color:var(--green)')}${td(at(l)-pg(l)||'—',1,at(l)-pg(l)?'color:var(--amber)':'')}${caixa?td(l.clientes||'—',1):''}${td(fmtV(l.mensal),1,'font-weight:600')}${td(l.clientes?fmtV(l.mensal/l.clientes):'—',1)}</tr>`),
+        `<tr>${td('Total')}${td(sAt,1)}${td(sPg,1)}${td(sAt-sPg,1)}${caixa?td(cli,1):''}${td(fmtV(tot),1)}${td(cli?fmtV(tot/cli):'—',1)}</tr>`);
   }
   else if(finAba==='liquido'){
     const tm=L.reduce((s,l)=>s+l.mensal,0), tdp=L.reduce((s,l)=>s+l.despesas,0);

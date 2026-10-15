@@ -2960,10 +2960,17 @@ async function lemMarcar(chave, silencioso){
     _lem.enviados.add(chave); lemRender(); atualizarBadgeLembretes();
   }catch(e){ if(!silencioso) toast('Erro: '+(e.message||e),'err'); }
 }
+// Link do WhatsApp. O atalho wa.me estraga emojis (viram "�") ao redirecionar;
+// o endereço api.whatsapp.com/send mantém o texto como foi enviado.
+function linkWhats(tel,msg){
+  tel=String(tel||'').replace(/\D/g,'');
+  if(tel && !(tel.startsWith('55') && tel.length>=12)) tel='55'+tel;
+  return `https://api.whatsapp.com/send?${tel?`phone=${tel}&`:''}text=${encodeURIComponent(String(msg||'').normalize('NFC'))}`;
+}
 function lemEnviar(chave){
   const i=_lem.itens.find(x=>x.chave===chave); if(!i) return;
   let tel=i.celular; if(tel && !(tel.startsWith('55') && tel.length>=12)) tel='55'+tel;
-  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(i.mensagem)}`,'_blank');
+  window.open(linkWhats(tel,i.mensagem),'_blank');
   lemMarcar(chave);
 }
 async function lemDesfazer(chave){
@@ -3748,8 +3755,7 @@ async function abrirWhatsApp(){
     if(!(await wappSalvarCli(true))){ if(w) w.close(); return; }
   }
   const tel=wappDados.tel||'';
-  const msg=encodeURIComponent(wappDados.mensagem);
-  const url=tel?`https://wa.me/55${tel}?text=${msg}`:`https://wa.me/?text=${msg}`;
+  const url=linkWhats(tel,wappDados.mensagem);
   if(w) w.location.href=url; else window.open(url,'_blank');
 }
 

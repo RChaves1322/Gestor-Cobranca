@@ -185,6 +185,13 @@ function camposExtras(body, upd){
   if (body.nomes_terceiros!==undefined) upd.nomes_terceiros=listaNomes(body.nomes_terceiros);
   return upd;
 }
+function camposArquivo(body, upd){
+  if (body.arquivado===undefined) return upd;
+  upd.arquivado=!!body.arquivado;
+  upd.arquivado_em=body.arquivado?new Date().toISOString():null;
+  if (body.status===undefined) upd.status=body.arquivado?'inativo':'ativo'; // arquivado não gera cobrança nova
+  return upd;
+}
 function nomeMensagem(c){ return (c && String(c.apelido||'').trim()) || primeiroNome(c?.nome); }
 // Grava em clientes ignorando colunas que ainda não existem (migração não rodada)
 async function gravarCliente(op, row, id){
@@ -194,7 +201,7 @@ async function gravarCliente(op, row, id){
     const { data, error } = await q.select().single();
     const m = error && String(error.message||'').match(/'([a-z_]+)' column|column "?([a-z_]+)"? (?:of relation|does not exist)/);
     const col = m && (m[1]||m[2]);
-    if (col && col in r && ['dia_cobranca','app','app_login','app_senha','apelido','nomes_terceiros'].includes(col)) { delete r[col]; continue; }
+    if (col && col in r && ['dia_cobranca','app','app_login','app_senha','apelido','nomes_terceiros','arquivado','arquivado_em'].includes(col)) { delete r[col]; continue; }
     return { data, error };
   }
   return { data:null, error:{ message:'falha ao gravar cliente' } };
@@ -510,7 +517,7 @@ export default async function handler(req, res) {
       if (body.status!==undefined)   upd.status=body.status==='ativo'?'ativo':'inativo';
       if (body.obs!==undefined)      upd.obs=body.obs||'';
       if (body.dia_cobranca!==undefined) upd.dia_cobranca=diaCobrancaOuNull(body.dia_cobranca, body.dia);
-      camposApp(body, upd); camposExtras(body, upd);
+      camposApp(body, upd); camposExtras(body, upd); camposArquivo(body, upd);
       // Acrescenta nomes terceiros sem apagar os que já existem (usado no pagamento)
       if (body.nomes_terceiros_add!==undefined) {
         const { data:atual } = await sb.from('clientes').select('*').eq('id',id).single();
@@ -730,7 +737,10 @@ export default async function handler(req, res) {
   if (url === '/cobrancas/inadimplentes') {
     await marcarVencidos();
     const { data } = await selectAll('movimentos_financeiros','*',q=>q.eq('status','vencido').order('vencimento'));
-    return res.json(data);
+    // Clientes arquivados ("sumiram"): a dívida continua, só sai da lista principal
+    const { data:arq, error:eArq } = await sb.from('clientes').select('id').eq('arquivado',true);
+    const ids=new Set(eArq?[]:(arq||[]).map(c=>c.id));
+    return res.json((data||[]).map(m=>({ ...m, arquivado:ids.has(m.cliente_id) })));
   }
   if (url === '/cobrancas/gerar' && req.method === 'POST') {
     const agora=new Date(), mes=agora.getMonth()+1, ano=agora.getFullYear(), mesRef=`${ano}-${pad(mes)}`;

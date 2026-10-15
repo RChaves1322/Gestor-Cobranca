@@ -158,6 +158,17 @@ tbody tr:hover td{background:var(--bg3)}
 .pag-info{background:var(--bg3);border-radius:var(--radius-sm);padding:.875rem 1rem;margin-bottom:1.5rem}
 .pag-info-nome{font-weight:600;font-size:15px;margin-bottom:3px}
 .pag-info-sub{font-size:12px;color:var(--muted)}
+#ov-pagamento .modal.multi{max-width:660px}
+.pp-wrap{border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:1.25rem;overflow:hidden}
+.pp-head{display:flex;justify-content:space-between;align-items:center;padding:.6rem .875rem;background:var(--bg3);font-size:12px;color:var(--muted)}
+.pp-row{display:grid;grid-template-columns:24px 1fr 100px auto;gap:10px;align-items:center;padding:.6rem .875rem;border-top:1px solid var(--border)}
+.pp-row.off{opacity:.55}
+.pp-row input[type=checkbox]{width:17px;height:17px;cursor:pointer;accent-color:var(--accent)}
+.pp-ref{font-weight:600;font-size:13px}
+.pp-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.pp-row input[type=number]{padding:6px 8px;font-size:13px}
+.pp-total{display:flex;justify-content:space-between;align-items:center;padding:.7rem .875rem;border-top:1px solid var(--border);font-weight:600}
+@media(max-width:600px){.pp-row{grid-template-columns:22px 1fr 80px auto;gap:8px}}
 
 /* CONFIGURAÇÕES */
 .cfg-section{margin-bottom:2rem}
@@ -935,9 +946,10 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="pag-info-sub" id="p-serv"></div>
       <div class="pag-info-sub" id="p-ref" style="margin-top:3px"></div>
     </div>
+    <div class="pp-wrap" id="p-parcelas" style="display:none"></div>
     <div class="form-grid">
-      <div class="form-group"><label class="form-label">Data do pagamento *</label><input type="date" id="p-data"></div>
-      <div class="form-group"><label class="form-label">Valor recebido (R$) *</label><input type="number" step="0.01" id="p-valor"></div>
+      <div class="form-group" id="p-data-grp"><label class="form-label">Data do pagamento *</label><input type="date" id="p-data"></div>
+      <div class="form-group" id="p-valor-grp"><label class="form-label">Valor recebido (R$) *</label><input type="number" step="0.01" id="p-valor"></div>
       <div class="form-group full"><label class="form-label">Servidor <span style="font-size:10px;color:var(--muted)">(alterar atualiza o cadastro do cliente)</span></label><select id="p-servidor"></select></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="p-obs" placeholder="Opcional"></div>
     </div>
@@ -1672,7 +1684,7 @@ async function renderDash(){
           <td style="font-weight:600">${fmtV(cb.valor)}</td>
           <td><span class="badge badge-${cb.status}">${LBL[cb.status]}</span></td>
           <td><div class="btn-group">
-            ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor}','${cb.vencimento}','${cb.mes_ref}',${cb.valor})"><i class="ti ti-check"></i> Pago</button>`:''}
+            ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor}','${cb.vencimento}','${cb.mes_ref}',${cb.valor},'${cb.cliente_id}')"><i class="ti ti-check"></i> Pago</button>`:''}
             ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')"><i class="ti ti-brand-whatsapp"></i></button>`:''}
           </div></td>
         </tr>`).join('')}</tbody></table>`;
@@ -1826,7 +1838,7 @@ async function renderCobs(vencerEmDias){
             <td data-label="Valor" style="font-weight:600;color:var(--green)">${cb.valor_pago!=null&&cb.status==='pago'?fmtV(cb.valor_pago):fmtV(cb.valor)}</td>
             <td class="hide-mobile"><span class="badge badge-${cb.status}">${LBL[cb.status]}</span></td>
             <td><div class="btn-group">
-              ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor||''}','${cb.vencimento}','${cb.mes_ref}',${cb.valor})"><i class="ti ti-check"></i><span> Pago</span></button>`:''}
+              ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor||''}','${cb.vencimento}','${cb.mes_ref}',${cb.valor},'${cb.cliente_id}')"><i class="ti ti-check"></i><span> Pago</span></button>`:''}
               ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')"><i class="ti ti-brand-whatsapp"></i></button>`:''}
               ${cb.status!=='cancelado'&&cb.status!=='pago'?`<button class="btn btn-sm btn-danger" onclick="cancelCob('${cb.id}')"><i class="ti ti-x"></i></button>`:''}
               <button class="btn btn-sm" style="color:var(--accent);border-color:var(--accent);margin-left:auto" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Histórico do cliente"><i class="ti ti-clock"></i></button>
@@ -1871,7 +1883,7 @@ async function renderInad(){
             <td>${fmtMesRef(cb.mes_ref)}</td><td>${fmtD(cb.vencimento)}</td>
             <td style="color:var(--muted)">${cb.servidor||'—'}</td>
             <td style="font-weight:600;color:var(--red)">${fmtV(cb.valor)}</td>
-            <td><button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor||''}','${cb.vencimento}','${cb.mes_ref}',${cb.valor})"><i class="ti ti-check"></i> Pago</button></td>
+            <td><button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor||''}','${cb.vencimento}','${cb.mes_ref}',${cb.valor},'${cb.cliente_id}')"><i class="ti ti-check"></i> Pago</button></td>
           </tr>`).join('')}</tbody>
         </table></div>`).join('')}`;
   }catch(e){toast('Erro ao carregar inadimplentes','err');}
@@ -3066,7 +3078,11 @@ async function toggleSt(id,status){
 }
 
 /* ── PAGAMENTO ── */
-async function abrirPag(id,nome,serv,venc,ref,valor){
+// Ao clicar em "Pago", mostra todas as parcelas em aberto (vencidas e pendentes)
+// do cliente para escolher quais acertar, com opção de anular alguma.
+let _pag={parcelas:[],clienteId:null,clicada:null};
+async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
+  _pag={parcelas:[],clienteId:clienteId||null,clicada:id};
   document.getElementById('p-id').value=id;
   document.getElementById('p-nome').textContent=nome;
   document.getElementById('p-serv').textContent=serv||'';
@@ -3074,6 +3090,18 @@ async function abrirPag(id,nome,serv,venc,ref,valor){
   document.getElementById('p-data').value=hoje();
   document.getElementById('p-valor').value=parseFloat(valor).toFixed(2);
   document.getElementById('p-obs').value='';
+  // Parcela clicada sempre entra; as demais vêm do histórico do cliente
+  let abertas=[{id,vencimento:venc,mes_ref:ref,valor:Number(valor),status:'pendente'}];
+  if(clienteId){
+    try{
+      const hist=await api('GET',`/api/clientes/${clienteId}/historico`);
+      const ab=hist.filter(h=>h.status==='pendente'||h.status==='vencido');
+      if(ab.some(h=>h.id===id)) abertas=ab;
+    }catch(e){}
+  }
+  abertas.sort((x,y)=>String(x.vencimento||'').localeCompare(String(y.vencimento||'')));
+  _pag.parcelas=abertas.map(h=>({id:h.id,vencimento:h.vencimento,mes_ref:h.mes_ref,status:h.status,valor:Number(h.valor||0),pagar:h.id===id,valorPago:Number(h.valor||0)}));
+  renderPagParcelas();
   // Carregar servidores no select e pré-selecionar o atual
   try{
     const servs=await api('GET','/api/servidores');
@@ -3087,20 +3115,87 @@ async function abrirPag(id,nome,serv,venc,ref,valor){
   openOv('ov-pagamento');
 }
 
-async function confirmarPag(){
-  const id=document.getElementById('p-id').value;
-  const pago_em=document.getElementById('p-data').value;
-  const valor_pago=document.getElementById('p-valor').value;
-  if(!pago_em||!valor_pago){toast('Informe a data e o valor','err');return;}
-  const servidor_novo=document.getElementById('p-servidor').value||'';
+function renderPagParcelas(){
+  const box=document.getElementById('p-parcelas');
+  const multi=_pag.parcelas.length>1;
+  document.querySelector('#ov-pagamento .modal').classList.toggle('multi',multi);
+  document.getElementById('p-valor-grp').style.display=multi?'none':'';
+  document.getElementById('p-data-grp').classList.toggle('full',multi);
+  document.getElementById('p-ref').style.display=multi?'none':'';
+  if(!multi){ box.style.display='none'; box.innerHTML=''; return; }
+  const sel=_pag.parcelas.filter(p=>p.pagar);
+  const total=sel.reduce((t,p)=>t+(Number(p.valorPago)||0),0);
+  const todas=sel.length===_pag.parcelas.length;
+  box.style.display='';
+  box.innerHTML=`
+    <div class="pp-head"><span>${_pag.parcelas.length} parcelas em aberto — marque as que serão pagas</span>
+      <a href="#" onclick="pagMarcarTodas(${!todas});return false" style="color:var(--accent)">${todas?'Desmarcar todas':'Marcar todas'}</a></div>
+    ${_pag.parcelas.map((p,i)=>`
+      <div class="pp-row${p.pagar?'':' off'}">
+        <input type="checkbox" ${p.pagar?'checked':''} onchange="pagToggle(${i},this.checked)">
+        <div><div class="pp-ref">${fmtMesRef(p.mes_ref)} <span class="badge badge-${p.status}" style="margin-left:6px">${LBL[p.status]}</span></div>
+          <div class="pp-sub">Venc. ${fmtD(p.vencimento)} · ${fmtV(p.valor)}</div></div>
+        <input type="number" step="0.01" value="${Number(p.valorPago).toFixed(2)}" ${p.pagar?'':'disabled'} oninput="pagValor(${i},this.value)" title="Valor recebido">
+        <button class="btn btn-sm btn-danger" onclick="pagAnular(${i})" title="Anular esta parcela"><i class="ti ti-ban"></i> Anular</button>
+      </div>`).join('')}
+    <div class="pp-total"><span>Total a receber (${sel.length})</span><span style="color:var(--green)" id="p-total">${fmtV(total)}</span></div>`;
+}
+function pagToggle(i,v){ _pag.parcelas[i].pagar=v; renderPagParcelas(); }
+function pagMarcarTodas(v){ _pag.parcelas.forEach(p=>p.pagar=v); renderPagParcelas(); }
+function pagValor(i,v){
+  _pag.parcelas[i].valorPago=v;
+  const t=_pag.parcelas.filter(p=>p.pagar).reduce((s,p)=>s+(parseFloat(p.valorPago)||0),0);
+  const el=document.getElementById('p-total'); if(el) el.textContent=fmtV(t);
+}
+async function pagAnular(i){
+  const p=_pag.parcelas[i];
+  if(!confirm(`Anular a parcela de ${fmtMesRef(p.mes_ref)} (${fmtV(p.valor)})?\nEla deixa de ser cobrada e sai dos inadimplentes.`)) return;
   try{
-    await api('PUT',`/api/cobrancas/${id}/pagar`,{pago_em,valor_pago:parseFloat(valor_pago),obs_pagamento:document.getElementById('p-obs').value,servidor_novo});
-    closeOv('ov-pagamento');toast('Pagamento registrado!');
-    if(currentPage==='dashboard')renderDash();
-    else if(currentPage==='cobrancas')renderCobs();
-    else if(currentPage==='inadimplentes')renderInad();
-    else if(currentPage==='financeiro')renderFinanceiro();
-  }catch{toast('Erro ao registrar','err');}
+    await api('PUT',`/api/cobrancas/${p.id}/cancelar`);
+    _pag.parcelas.splice(i,1);
+    toast('Parcela anulada.');
+    pagAtualizarTela();
+    if(!_pag.parcelas.length){ closeOv('ov-pagamento'); return; }
+    if(_pag.parcelas.length===1){
+      const u=_pag.parcelas[0]; u.pagar=true;
+      document.getElementById('p-id').value=u.id;
+      document.getElementById('p-valor').value=Number(u.valorPago).toFixed(2);
+      document.getElementById('p-ref').textContent='Vencimento: '+fmtD(u.vencimento)+(u.mes_ref?' · Ref: '+u.mes_ref:'');
+    }
+    renderPagParcelas();
+  }catch{toast('Erro ao anular','err');}
+}
+function pagAtualizarTela(){
+  if(currentPage==='dashboard')renderDash();
+  else if(currentPage==='cobrancas')renderCobs();
+  else if(currentPage==='inadimplentes')renderInad();
+  else if(currentPage==='financeiro')renderFinanceiro();
+}
+
+async function confirmarPag(){
+  const pago_em=document.getElementById('p-data').value;
+  const servidor_novo=document.getElementById('p-servidor').value||'';
+  const obs_pagamento=document.getElementById('p-obs').value;
+  let itens;
+  if(_pag.parcelas.length>1){
+    itens=_pag.parcelas.filter(p=>p.pagar).map(p=>({id:p.id,valor_pago:parseFloat(p.valorPago)}));
+    if(!itens.length){toast('Marque ao menos uma parcela','err');return;}
+  }else{
+    itens=[{id:document.getElementById('p-id').value,valor_pago:parseFloat(document.getElementById('p-valor').value)}];
+  }
+  if(!pago_em||itens.some(x=>isNaN(x.valor_pago))){toast('Informe a data e o valor','err');return;}
+  let ok=0;
+  try{
+    for(const it of itens){
+      await api('PUT',`/api/cobrancas/${it.id}/pagar`,{pago_em,valor_pago:it.valor_pago,obs_pagamento,servidor_novo});
+      ok++;
+    }
+    closeOv('ov-pagamento');
+    toast(ok>1?`${ok} parcelas pagas!`:'Pagamento registrado!');
+  }catch{
+    toast(ok?`Só ${ok} de ${itens.length} parcela(s) foram registradas. Confira o histórico.`:'Erro ao registrar','err');
+  }
+  pagAtualizarTela();
 }
 
 async function cancelCob(id){

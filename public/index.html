@@ -98,6 +98,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .cob-cli-item:hover{border-color:var(--accent)}
 .cob-cli-nome{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cob-cli-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.inad-arq{border-top:1px solid var(--border);margin-top:.5rem}
+.inad-arq-head{display:flex;align-items:center;gap:8px;padding:.9rem 1rem;cursor:pointer;font-size:13px}
+.inad-arq-head > span:first-child{flex:1}
+.inad-arq-head:hover{background:rgba(255,255,255,.02)}
+.inad-arq-list{padding:0 1rem 1rem;display:flex;flex-direction:column;gap:6px}
+.inad-arq-item{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.55rem .75rem;font-size:13px;opacity:.85}
 .cli-link{cursor:pointer}.cli-link:hover{color:var(--accent);text-decoration:underline}
 
 /* ── INPUTS ── */
@@ -2013,21 +2019,42 @@ async function renderCobs(vencerEmDias){
 }
 
 /* ── INADIMPLENTES ── */
+let _inadArqAberto=false;
 async function renderInad(){
   try{
     const venc=await api('GET','/api/cobrancas/inadimplentes');
-    if(!venc.length){
-      document.getElementById('inad-card').innerHTML='<div class="empty"><i class="ti ti-circle-check"></i><p>Nenhum cliente inadimplente.</p></div>';
-      atualizarBadge(0);return;
-    }
-    const mapa={};
-    venc.forEach(cb=>{
-      if(!mapa[cb.cliente_id])mapa[cb.cliente_id]={nome:cb.cliente_nome,id:cb.cliente_id,total:0,qtd:0,itens:[]};
-      mapa[cb.cliente_id].total+=cb.valor;mapa[cb.cliente_id].qtd++;mapa[cb.cliente_id].itens.push(cb);
-    });
-    const grupos=Object.values(mapa).sort((a,b)=>b.total-a.total);
+    const agrupar=lista=>{
+      const mapa={};
+      lista.forEach(cb=>{
+        if(!mapa[cb.cliente_id])mapa[cb.cliente_id]={nome:cb.cliente_nome,id:cb.cliente_id,total:0,qtd:0,itens:[]};
+        mapa[cb.cliente_id].total+=Number(cb.valor||0);mapa[cb.cliente_id].qtd++;mapa[cb.cliente_id].itens.push(cb);
+      });
+      return Object.values(mapa).sort((a,b)=>b.total-a.total);
+    };
+    const grupos=agrupar(venc.filter(c=>!c.arquivado));
+    const arquivados=agrupar(venc.filter(c=>c.arquivado));
     atualizarBadge(grupos.length);
-    const totalG=grupos.reduce((s,g)=>s+g.total,0);
+    const totalG=grupos.reduce((s,g)=>s+g.total,0), totalA=arquivados.reduce((s,g)=>s+g.total,0);
+    const blocoArq=arquivados.length?`
+      <div class="inad-arq">
+        <div class="inad-arq-head" onclick="_inadArqAberto=!_inadArqAberto;renderInad()">
+          <span><i class="ti ti-archive" style="margin-right:6px"></i><b>Arquivados — sumiram</b> <span style="color:var(--muted)">· ${arquivados.length} cliente(s) · ${fmtV(totalA)} em aberto</span></span>
+          <i class="ti ti-chevron-${_inadArqAberto?'up':'down'}"></i> <span style="font-size:12px;color:var(--accent)">${_inadArqAberto?'Esconder':'Mostrar'}</span>
+        </div>
+        ${_inadArqAberto?`<div class="inad-arq-list">${arquivados.map(g=>`
+          <div class="inad-arq-item">
+            <span class="cli-link" style="font-weight:600" onclick="abrirHist('${g.id}','${esc(g.nome)}')">${escH(g.nome)}</span>
+            <span style="color:var(--muted);font-size:12px;flex:1">${g.qtd} parcela${g.qtd>1?'s':''} · desde ${fmtMesRef(g.itens.map(i=>i.mes_ref).sort()[0])} · <b style="color:var(--red)">${fmtV(g.total)}</b></span>
+            <span class="btn-group">
+              <button class="btn btn-sm btn-success" onclick="abrirPag('${g.itens[0].id}','${esc(g.nome)}','${esc(g.itens[0].servidor||'')}','${g.itens[0].vencimento}','${g.itens[0].mes_ref}',${g.itens[0].valor},'${g.id}')"><i class="ti ti-check"></i> Pago</button>
+              <button class="btn btn-sm" onclick="inadArquivar('${g.id}','${esc(g.nome)}',false)" title="Voltar para a lista de inadimplentes e reativar o cliente"><i class="ti ti-arrow-back-up"></i> Reativar</button>
+            </span>
+          </div>`).join('')}</div>`:''}
+      </div>`:'';
+    if(!grupos.length){
+      document.getElementById('inad-card').innerHTML='<div class="empty"><i class="ti ti-circle-check"></i><p>Nenhum cliente inadimplente.</p></div>'+blocoArq;
+      return;
+    }
     document.getElementById('inad-card').innerHTML=`
       <div class="card-header"><span class="card-title">Clientes inadimplentes</span>
         <span style="font-size:13px;color:var(--muted)">${grupos.length} cliente(s) · <strong style="color:var(--red)">${fmtV(totalG)}</strong> em aberto</span>
@@ -2035,10 +2062,11 @@ async function renderInad(){
       ${grupos.map(g=>`
         <div class="group-header">
           <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <span><i class="ti ti-user" style="margin-right:5px"></i><strong>${g.nome}</strong></span>
+            <span><i class="ti ti-user" style="margin-right:5px"></i><strong class="cli-link" onclick="abrirHist('${g.id}','${esc(g.nome)}')">${g.nome}</strong></span>
             <span style="color:var(--muted);font-weight:400;font-size:12px">${g.qtd} parcela${g.qtd>1?'s':''}</span>
             <span class="group-total">${fmtV(g.total)}</span>
             <button class="btn btn-sm btn-wapp" onclick="abrirWapp('${g.id}','vencido')"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button>
+            <button class="btn btn-sm" onclick="inadArquivar('${g.id}','${esc(g.nome)}',true)" title="Cliente sumiu: tira da lista, mantém as parcelas em aberto"><i class="ti ti-archive"></i> Arquivar</button>
           </span>
         </div>
         <div class="table-wrap"><table style="table-layout:fixed">
@@ -2049,14 +2077,27 @@ async function renderInad(){
             <td style="font-weight:600;color:var(--red)">${fmtV(cb.valor)}</td>
             <td><button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor||''}','${cb.vencimento}','${cb.mes_ref}',${cb.valor},'${cb.cliente_id}')"><i class="ti ti-check"></i> Pago</button></td>
           </tr>`).join('')}</tbody>
-        </table></div>`).join('')}`;
+        </table></div>`).join('')}${blocoArq}`;
   }catch(e){toast('Erro ao carregar inadimplentes','err');}
+}
+
+async function inadArquivar(id,nome,arquivar){
+  const msg=arquivar
+    ?`Arquivar "${nome}"?\n\nO cliente sai da lista de inadimplentes e fica inativo (não gera cobranças novas nem lembretes).\nAs parcelas em aberto CONTINUAM registradas e aparecem em "Arquivados" no fim da página.`
+    :`Reativar "${nome}"?\n\nEle volta para a lista de inadimplentes e fica ativo de novo.`;
+  if(!confirm(msg)) return;
+  try{
+    const r=await api('PUT',`/api/clientes/${id}`,{arquivado:arquivar});
+    if(r && r.arquivado===undefined){ toast('Rode o arquivo MIGRACAO_ARQUIVAR_CLIENTES.sql no Supabase antes de arquivar.','err'); return; }
+    toast(arquivar?'Cliente arquivado. As parcelas continuam em aberto.':'Cliente reativado.');
+    renderInad();
+  }catch{ toast('Erro ao atualizar cliente','err'); }
 }
 
 async function atualizarBadge(n){
   const badge=document.getElementById('badge-inad');
   if(n===undefined){
-    try{const v=await api('GET','/api/cobrancas/inadimplentes');n=[...new Set(v.map(i=>i.cliente_id))].length;}catch{n=0;}
+    try{const v=await api('GET','/api/cobrancas/inadimplentes');n=[...new Set(v.filter(i=>!i.arquivado).map(i=>i.cliente_id))].length;}catch{n=0;}
   }
   badge.style.display=n>0?'':'none';badge.textContent=n;
 }

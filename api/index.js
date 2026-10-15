@@ -530,8 +530,15 @@ export default async function handler(req, res) {
         upd.nomes_terceiros=listaNomes([...(atual?.nomes_terceiros||[]), ...listaNomes(body.nomes_terceiros_add)]);
       }
       if (!Object.keys(upd).length) return err(res,'Nada para atualizar');
+      const { data:antes } = upd.nome ? await sb.from('clientes').select('nome').eq('id',id).single() : { data:null };
       const { data, error } = await gravarCliente('update', upd, id);
       if (error) return err(res, `Erro ao atualizar cliente: ${error.message}`, 500);
+      // Nome trocado: atualiza as cobranças e guarda o nome antigo para as
+      // importações de planilha continuarem achando este cliente.
+      if (antes && upd.nome && antes.nome !== upd.nome) {
+        await sb.from('movimentos_financeiros').update({ cliente_nome:upd.nome }).eq('cliente_id',id);
+        try { await sb.from('clientes_apelidos').upsert({ nome:antes.nome, cliente_id:id, criado:new Date().toISOString() },{onConflict:'nome'}); } catch(e) {}
+      }
       return res.json(data);
     }
     if (req.method === 'GET') {

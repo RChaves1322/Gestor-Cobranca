@@ -104,6 +104,11 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .inad-arq-head:hover{background:rgba(255,255,255,.02)}
 .inad-arq-list{padding:0 1rem 1rem;display:flex;flex-direction:column;gap:6px}
 .inad-arq-item{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.55rem .75rem;font-size:13px;opacity:.85}
+.wapp-cli{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.75rem;margin-bottom:.9rem}
+.wapp-cli-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.wapp-cli-grid input{width:100%}
+.wapp-cli-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:11px;color:var(--muted);min-height:26px}
+@media(max-width:600px){.wapp-cli-grid{grid-template-columns:1fr}}
 .cli-link{cursor:pointer}.cli-link:hover{color:var(--accent);text-decoration:underline}
 
 /* ── INPUTS ── */
@@ -1224,6 +1229,14 @@ tbody tr:hover td{background:var(--bg3)}
     <div class="wapp-tabs">
       <button class="btn btn-sm" id="wapp-tab-pend" onclick="trocarAbaWapp('pendente')"><i class="ti ti-clock"></i> Pendentes</button>
       <button class="btn btn-sm btn-danger" id="wapp-tab-venc" onclick="trocarAbaWapp('vencido')"><i class="ti ti-alert-triangle"></i> Vencidas</button>
+    </div>
+    <div class="wapp-cli">
+      <div class="wapp-cli-grid">
+        <div><label class="form-label">Apelido na mensagem</label><input id="wapp-apelido" placeholder="Como chamar o cliente" oninput="wappMarcar()" onkeydown="if(event.key==='Enter')wappSalvarCli()"></div>
+        <div><label class="form-label">Celular (com DDD)</label><input id="wapp-cel" placeholder="11999990000" inputmode="tel" oninput="wappMarcar()" onkeydown="if(event.key==='Enter')wappSalvarCli()"></div>
+      </div>
+      <div class="wapp-cli-foot"><span id="wapp-cli-nome"></span>
+        <button class="btn btn-sm btn-primary" id="wapp-btn-salvar" onclick="wappSalvarCli()" style="display:none"><i class="ti ti-device-floppy"></i> Salvar no cadastro</button></div>
     </div>
     <div id="wapp-info" style="font-size:12px;color:var(--muted);margin-bottom:.75rem"></div>
     <div class="wapp-preview" id="wapp-preview"></div>
@@ -3704,6 +3717,7 @@ async function carregarWapp(clienteId,tipo){
   try{
     const d=await api('GET',`/api/whatsapp/${clienteId}?tipo=${tipo}`);
     wappDados={...d,clienteId,tipo};
+    wappPreencherCli(d);
     document.getElementById('wapp-title').textContent='WhatsApp — '+(tipo==='pendente'?'Pendentes':'Vencidas');
     if(d.vazio){
       document.getElementById('wapp-preview').textContent=`Nenhuma cobrança ${tipo==='vencido'?'vencida':'pendente'} encontrada.`;
@@ -3726,11 +3740,52 @@ async function trocarAbaWapp(tipo){
   await carregarWapp(wappClienteId,tipo);
 }
 
-function abrirWhatsApp(){
+async function abrirWhatsApp(){
   if(!wappDados||!wappDados.mensagem)return;
+  let w=null;
+  if(wappMudou()){
+    w=window.open('about:blank','_blank');          // abre já (evita bloqueio de pop-up) e aponta depois
+    if(!(await wappSalvarCli(true))){ if(w) w.close(); return; }
+  }
   const tel=wappDados.tel||'';
   const msg=encodeURIComponent(wappDados.mensagem);
-  window.open(tel?`https://wa.me/55${tel}?text=${msg}`:`https://wa.me/?text=${msg}`,'_blank');
+  const url=tel?`https://wa.me/55${tel}?text=${msg}`:`https://wa.me/?text=${msg}`;
+  if(w) w.location.href=url; else window.open(url,'_blank');
+}
+
+// Apelido e celular editáveis direto na janela do WhatsApp
+let _wappCliIni=null;
+function wappPreencherCli(d){
+  const ap=document.getElementById('wapp-apelido'), cel=document.getElementById('wapp-cel');
+  if(!ap) return;
+  ap.value=d.apelido||''; cel.value=d.celular||'';
+  ap.placeholder=d.nome_usado?`Hoje vai: ${d.nome_usado}`:'Como chamar o cliente';
+  _wappCliIni={apelido:ap.value.trim(), celular:normTel(cel.value)};
+  document.getElementById('wapp-cli-nome').textContent=d.cliente_nome||'';
+  wappMarcar();
+}
+function wappMudou(){
+  if(!_wappCliIni) return false;
+  return document.getElementById('wapp-apelido').value.trim()!==_wappCliIni.apelido
+      || normTel(document.getElementById('wapp-cel').value)!==_wappCliIni.celular;
+}
+function wappMarcar(){
+  const m=wappMudou();
+  document.getElementById('wapp-btn-salvar').style.display=m?'':'none';
+  document.getElementById('wapp-cli-nome').style.display=m?'none':'';
+}
+async function wappSalvarCli(silencioso){
+  if(!wappDados||!wappMudou()) return true;
+  const apelido=document.getElementById('wapp-apelido').value.trim();
+  const celular=normTel(document.getElementById('wapp-cel').value);
+  if(celular && celular.length<10){ toast('Celular inválido: informe DDD + número','err'); return false; }
+  try{
+    const r=await api('PUT',`/api/clientes/${wappDados.clienteId}`,{apelido,celular});
+    if(apelido && r && r.apelido===undefined) toast('Celular salvo. Para guardar o apelido, rode o MIGRACAO_APELIDO_TERCEIROS.sql no Supabase.','err');
+    else if(!silencioso) toast('Cadastro atualizado!');
+    await carregarWapp(wappDados.clienteId, wappDados.tipo);
+    return true;
+  }catch{ toast('Erro ao salvar no cadastro','err'); return false; }
 }
 
 function copiarMensagem(){

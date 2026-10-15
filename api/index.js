@@ -1232,7 +1232,6 @@ export default async function handler(req, res) {
   }
   if (url === '/outras-vendas/tipos') { const { data }=await sb.from('tipos_receita').select('nome').order('nome'); return res.json(data.map(r=>r.nome)); }
   if (url === '/outras-vendas/meses') { const { data }=await sb.from('outras_vendas').select('mes_ref').order('mes_ref',{ascending:false}); return res.json([...new Set(data.map(r=>r.mes_ref))]); }
-  if (url === '/outras-vendas/limpar' && req.method==='DELETE') { await sb.from('outras_vendas').delete().neq('id','_'); return res.json({ ok:true }); }
   if (url === '/outras-vendas/importar' && req.method==='POST') {
     const { registros=[] } = body;
     let importados=0, ignorados=0, erros=[];
@@ -1291,7 +1290,6 @@ export default async function handler(req, res) {
     return res.json({ total:totalGeral, qtd:rows.length, porTipo, porMes });
   }
   if (url === '/despesas/tipos') { const { data }=await sb.from('tipos_despesa').select('nome').order('nome'); return res.json(data.map(r=>r.nome)); }
-  if (url === '/despesas/limpar' && req.method==='DELETE') { await sb.from('despesas').delete().neq('id','_'); return res.json({ ok:true }); }
   if (url === '/despesas/importar' && req.method==='POST') {
     const { registros=[] } = body;
     let importados=0, ignorados=0, erros=[];
@@ -1320,13 +1318,6 @@ export default async function handler(req, res) {
   }
 
   // ─── LIMPEZA GERAL ────────────────────────────────────────────
-  if (url === '/limpar-clientes-cobrancas' && req.method==='DELETE') {
-    await sb.from('movimentos_financeiros').delete().neq('id','_');
-    await sb.from('clientes').delete().neq('id','_');
-    await sb.from('servidores').delete().neq('id','_');
-    return res.json({ ok:true });
-  }
-
   // ─── NORMALIZAR SERVIDORES ────────────────────────────────────
   if (url === '/normalizar-servidores' && req.method==='POST') {
     const { data:clientes } = await sb.from('clientes').select('id,servidor');

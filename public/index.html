@@ -180,7 +180,7 @@ tbody tr:hover td{background:var(--bg3)}
 .m6-st{font-size:11px;font-weight:700;margin-top:3px}
 .m6-sub{font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .m6-ok{background:var(--green-bg);border-color:var(--green)}.m6-ok .m6-st{color:var(--green)}
-.m6-tarde{background:var(--green-bg);border-color:var(--amber)}.m6-tarde .m6-st{color:var(--amber)}
+.m6-tarde{background:var(--green-bg);border-color:var(--green)}.m6-tarde .m6-st{color:var(--green)}
 .m6-venc{background:var(--red-bg);border-color:var(--red)}.m6-venc .m6-st{color:var(--red)}
 .m6-aberto{background:var(--amber-bg);border-color:var(--amber)}.m6-aberto .m6-st{color:var(--amber)}
 .m6-nada .m6-st,.m6-anul .m6-st{color:var(--muted)}
@@ -3700,7 +3700,7 @@ function resumo6Meses(hist, onVer){
     let cls='nada', st='Sem cobrança', sub='—';
     if(pago){
       const atraso=pago.pago_em&&pago.vencimento?dias(pago.pago_em,pago.vencimento):0;
-      if(atraso>0){ cls='tarde'; st='Pago c/ atraso'; sub=`${fmtD(pago.pago_em).slice(0,5)} · ${atraso}d`; cont.tarde++; }
+      if(atraso>0){ cls='tarde'; st='Pago'; sub=`${fmtD(pago.pago_em).slice(0,5)} · ${atraso}d atraso`; cont.tarde++; }
       else { cls='ok'; st='Pago'; sub=pago.pago_em?fmtD(pago.pago_em).slice(0,5):'em dia'; cont.ok++; }
     } else if(venc){ cls='venc'; st='Vencida'; sub=`${Math.max(0,dias(hoje(),venc.vencimento))}d atraso`; cont.venc++; }
     else if(ab){ cls='aberto'; st='Em aberto'; sub='vence '+fmtD(ab.vencimento).slice(0,5); cont.aberto++; }
@@ -3709,8 +3709,7 @@ function resumo6Meses(hist, onVer){
     return `<div class="m6-cel m6-${cls}" title="${fmtMesRef(mr)}: ${st}${val?' · '+val:''}"><div class="m6-mes">${rot}</div><div class="m6-st">${st}</div><div class="m6-sub">${sub}</div></div>`;
   }).join('');
   const partes=[];
-  if(cont.ok) partes.push(`<span style="color:var(--green)">${cont.ok} em dia</span>`);
-  if(cont.tarde) partes.push(`<span style="color:var(--amber)">${cont.tarde} com atraso</span>`);
+  if(cont.ok+cont.tarde) partes.push(`<span style="color:var(--green)">${cont.ok+cont.tarde} pago(s)${cont.tarde?` <span style="color:var(--muted)">(${cont.tarde} com atraso)</span>`:''}</span>`);
   if(cont.venc) partes.push(`<span style="color:var(--red)">${cont.venc} vencida(s)</span>`);
   if(cont.aberto) partes.push(`<span style="color:var(--amber)">${cont.aberto} em aberto</span>`);
   return `<div class="m6"><div class="m6-head"><b>Últimos 6 meses</b><span>${partes.join(' · ')||'sem movimentos'}${onVer?` · <a href="#" onclick="${onVer};return false" style="color:var(--accent)">ver histórico completo</a>`:''}</span></div>

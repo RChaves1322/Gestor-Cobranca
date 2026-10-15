@@ -109,6 +109,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .wapp-cli-grid input{width:100%}
 .wapp-cli-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:11px;color:var(--muted);min-height:26px}
 @media(max-width:600px){.wapp-cli-grid{grid-template-columns:1fr}}
+.metric-olho{background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;cursor:pointer;padding:2px 6px;font-size:13px;line-height:1}
+.metric-olho:hover{color:var(--text);border-color:var(--accent)}
 .cli-link{cursor:pointer}.cli-link:hover{color:var(--accent);text-decoration:underline}
 
 /* ── INPUTS ── */
@@ -1721,7 +1723,7 @@ async function iniciarAutenticacao(){
 const PAGES=['dashboard','clientes','cobrancas','inadimplentes','financeiro','outras-vendas','despesas','cadastros','configuracoes'];
 const TITLES={dashboard:'Painel',clientes:'Clientes',cobrancas:'Cobranças',inadimplentes:'Inadimplentes',financeiro:'Financeiro','outras-vendas':'Receitas',despesas:'Despesas',cadastros:'Cadastros Gerais',configuracoes:'Configurações'};
 const ACTIONS={
-  dashboard:  ()=>`<button class="btn" id="btn-olho-valores" onclick="alternarValores()" title="Mostrar/ocultar valores"><i class="ti ti-eye-off"></i><span> Mostrar valores</span></button> <button class="btn btn-primary" onclick="gerarMes()"><i class="ti ti-refresh"></i> Gerar cobranças do mês</button>`,
+  dashboard:  ()=>`<button class="btn btn-primary" onclick="gerarMes()"><i class="ti ti-refresh"></i> Gerar cobranças do mês</button>`,
   clientes:   ()=>`<div class="btn-group"><button class="btn btn-purple" onclick="abrirImportarIPTV()"><i class="ti ti-table-import"></i> Importar planilha</button><button class="btn" onclick="abrirExportar()" title="Baixar backup em Excel"><i class="ti ti-file-download"></i> Exportar planilha</button><button class="btn" onclick="abrirMesclar()" title="Juntar dois cadastros do mesmo cliente"><i class="ti ti-git-merge"></i> Juntar clientes</button><button class="btn btn-primary" onclick="openClienteModal()"><i class="ti ti-plus"></i> Novo cliente</button></div>`,
   cobrancas:  ()=>`<div class="btn-group"><button class="btn btn-wapp" onclick="abrirLembretes()" title="Lembretes de cobrança para enviar hoje"><i class="ti ti-bell-ringing"></i> Lembretes <span id="lem-badge" style="display:none;margin-left:4px;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px"></span></button><button class="btn" onclick="abrirExtrato()" title="Dar baixa pelos PIX do extrato do banco"><i class="ti ti-building-bank"></i> Importar extrato</button><button class="btn btn-purple" onclick="abrirLote()"><i class="ti ti-layer-group"></i> Receber em lote</button><button class="btn btn-primary" onclick="gerarMes()"><i class="ti ti-refresh"></i> Gerar cobranças do mês</button></div>`,
   inadimplentes:()=>'', cadastros:()=>'', configuracoes:()=>'',
@@ -1764,7 +1766,7 @@ function marcarValores(root){
     n.parentNode.replaceChild(frag,n);
   }
 }
-const PAGINAS_VALORES=['page-financeiro','page-dashboard'];
+const PAGINAS_VALORES=['page-financeiro'];
 function aplicarEstadoValores(){
   PAGINAS_VALORES.forEach(id=>{ const pg=document.getElementById(id); if(pg) pg.classList.toggle('valores-ocultos',!_valoresVisiveis); });
   const b=document.getElementById('btn-olho-valores');
@@ -1783,7 +1785,8 @@ function alternarValores(){ _valoresVisiveis=!_valoresVisiveis; aplicarEstadoVal
 })();
 
 function showPage(name){
-  if(name==='financeiro'||name==='dashboard') _valoresVisiveis=false;   // valores sempre começam ocultos
+  if(name==='financeiro') _valoresVisiveis=false;
+  if(name==='dashboard') _dashVer={receber:false,recebido:false};   // valores dos cards começam ocultos
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
@@ -1793,13 +1796,30 @@ function showPage(name){
   document.getElementById('topbar-actions').innerHTML=ACTIONS[name]?ACTIONS[name]():'';
   currentPage=name;
   const fn={dashboard:renderDash,clientes:renderClientes,cobrancas:renderCobs,inadimplentes:renderInad,financeiro:renderFinanceiro,'outras-vendas':renderOutrasVendas,despesas:renderDespesas,cadastros:renderCadastros,configuracoes:carregarConfigs};
-  if(name==='financeiro'||name==='dashboard') aplicarEstadoValores();
+  if(name==='financeiro') aplicarEstadoValores();
   if(fn[name])fn[name]();
   if(name==='cobrancas') atualizarBadgeLembretes();
 }
 
 /* ── DASHBOARD ── */
-let _dashPagos=false, _cobsPagos=false;
+let _dashPagos=false, _cobsPagos=false, _dashVer={receber:false,recebido:false}, _dashUlt=null;
+// Card do painel com valor oculto e olho para mostrar
+function dashCardValor(chave,rotulo,valor,cls){
+  const ver=_dashVer[chave];
+  return `<div class="metric"><div class="metric-label" style="display:flex;justify-content:space-between;align-items:center;gap:6px">${rotulo}
+      <button class="metric-olho" onclick="_dashVer.${chave}=!_dashVer.${chave};dashCards()" title="${ver?'Ocultar':'Mostrar'} valor"><i class="ti ti-eye${ver?'-off':''}"></i></button></div>
+    <div class="metric-value ${cls||''}">${ver?fmtV(valor):'<span style="color:var(--muted);letter-spacing:2px">R$ •••••</span>'}</div></div>`;
+}
+function dashCards(){
+  const d=_dashUlt; if(!d) return;
+  const mes=parseInt(d.mesRef.split('-')[1]);
+  document.getElementById('metrics').innerHTML=`
+      <div class="metric"><div class="metric-label">Clientes ativos</div><div class="metric-value cv-blue">${d.ativos}</div></div>
+      ${dashCardValor('receber',`A receber (${mesNome(mes)})`,d.totalMes,'')}
+      ${dashCardValor('recebido','Recebido',d.recebido,'cv-green')}
+      <div class="metric"><div class="metric-label">Pendentes</div><div class="metric-value cv-amber">${d.pendentes}</div></div>
+      <div class="metric"><div class="metric-label">Vencidas</div><div class="metric-value cv-red">${d.vencidas}</div></div>`;
+}
 // Ordem: vencimento mais antigo primeiro (empate: nome)
 function ordemVenc(a,b){ return String(a.vencimento||'').localeCompare(String(b.vencimento||'')) || String(a.cliente_nome||'').localeCompare(String(b.cliente_nome||''),'pt-BR'); }
 function btnPagos(id,ativo,qtd){
@@ -1810,13 +1830,7 @@ function btnPagos(id,ativo,qtd){
 async function renderDash(){
   try{
     const d=await api('GET','/api/dashboard');
-    const mes=parseInt(d.mesRef.split('-')[1]);
-    document.getElementById('metrics').innerHTML=`
-      <div class="metric"><div class="metric-label">Clientes ativos</div><div class="metric-value cv-blue">${d.ativos}</div></div>
-      <div class="metric"><div class="metric-label">A receber (${mesNome(mes)})</div><div class="metric-value">${fmtV(d.totalMes)}</div></div>
-      <div class="metric"><div class="metric-label">Recebido</div><div class="metric-value cv-green">${fmtV(d.recebido)}</div></div>
-      <div class="metric"><div class="metric-label">Pendentes</div><div class="metric-value cv-amber">${d.pendentes}</div></div>
-      <div class="metric"><div class="metric-label">Vencidas</div><div class="metric-value cv-red">${d.vencidas}</div></div>`;
+    _dashUlt=d; dashCards();
     const qtdPagos=d.doMes.filter(c=>c.status==='pago'||c.status==='cancelado').length;
     btnPagos('dash-pagos-btn',_dashPagos,qtdPagos);
     const rows=d.doMes.filter(c=>_dashPagos||(c.status!=='pago'&&c.status!=='cancelado')).sort(ordemVenc);

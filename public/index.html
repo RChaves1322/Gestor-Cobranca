@@ -204,7 +204,8 @@ tbody tr:hover td{background:var(--bg3)}
 .pag-cli{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .pag-cli-full{grid-column:1/-1}
 .pag-cli input{width:100%}
-.pag-cli .form-label{margin-bottom:4px}
+.pag-cli .form-label{margin-bottom:4px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pag-cli input#p-cel:placeholder-shown{border-color:var(--amber)}
 @media(max-width:600px){.pag-cli{grid-template-columns:1fr}}
 #ov-pagamento .modal.multi{max-width:660px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
@@ -1074,7 +1075,7 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="pag-cli">
         <div class="pag-cli-full"><label class="form-label">Usuário na plataforma</label><input id="p-nome-in" placeholder="Ex.: AnaPaula977"></div>
         <div><label class="form-label">Apelido <span style="font-size:10px;color:var(--muted)">(nome no WhatsApp)</span></label><input id="p-apelido" placeholder="Ex.: Ana Paula"></div>
-        <div><label class="form-label">Celular (com DDD) <span id="p-cel-aviso" style="font-size:10px;color:var(--amber);display:none">sem telefone</span></label><input id="p-cel" placeholder="11999990000" inputmode="tel"></div>
+        <div><label class="form-label">Celular (com DDD)</label><input id="p-cel" placeholder="Sem telefone — ex.: 11999990000" inputmode="tel"><span id="p-cel-aviso" style="display:none"></span></div>
         <div class="pag-cli-full"><label class="form-label">Nomes terceiros <span style="font-size:10px;color:var(--muted)">(contas que pagam por este cliente)</span></label>
           <div class="chips" id="p-terc-chips"></div>
           <div class="chip-add"><input id="p-terc-in" placeholder="Nome da conta que pagou" onkeydown="if(event.key==='Enter'){event.preventDefault();chipAdd('p')}">
@@ -1088,6 +1089,8 @@ tbody tr:hover td{background:var(--bg3)}
     <div class="form-grid">
       <div class="form-group" id="p-data-grp"><label class="form-label">Data do pagamento *</label><input type="date" id="p-data"></div>
       <div class="form-group" id="p-valor-grp"><label class="form-label">Valor recebido (R$) *</label><input type="number" step="0.01" id="p-valor"></div>
+      <div class="form-group"><label class="form-label">Dia de vencimento da lista</label><input type="number" min="1" max="31" id="p-dia" placeholder="1–31"></div>
+      <div class="form-group"><label class="form-label">Dia de cobrança</label><input type="number" min="1" max="31" id="p-dia-cob" placeholder="Mesmo do vencimento"></div>
       <div class="form-group full"><label class="form-label">Servidor <span style="font-size:10px;color:var(--muted)">(alterar atualiza o cadastro do cliente)</span></label><select id="p-servidor"></select></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="p-obs" placeholder="Opcional"></div>
     </div>
@@ -3529,8 +3532,8 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
   _pag={parcelas:[],clienteId:clienteId||null,clicada:id,cliente:null,tercIni:[],ini:null};
   _terc.p=[]; chipRender('p'); document.getElementById('p-terc-in').value='';
   const $p=x=>document.getElementById(x);
-  $p('p-nome-in').value=nome; $p('p-apelido').value=''; $p('p-cel').value=''; $p('p-cel-aviso').style.display='none';
-  ['p-nome-in','p-apelido','p-cel','p-terc-in'].forEach(k=>$p(k).disabled=!clienteId);
+  $p('p-nome-in').value=nome; $p('p-apelido').value=''; $p('p-cel').value=''; $p('p-dia').value=''; $p('p-dia-cob').value='';
+  ['p-nome-in','p-apelido','p-cel','p-terc-in','p-dia','p-dia-cob'].forEach(k=>$p(k).disabled=!clienteId);
   if(clienteId){
     try{
       const c=await api('GET',`/api/clientes/${clienteId}`);
@@ -3538,8 +3541,9 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
       _terc.p=Array.isArray(c.nomes_terceiros)?[...c.nomes_terceiros]:[];
       _pag.tercIni=[..._terc.p]; chipRender('p');
       $p('p-nome-in').value=c.nome||nome; $p('p-apelido').value=c.apelido||''; $p('p-cel').value=c.celular||'';
-      $p('p-cel-aviso').style.display=normTel(c.celular)?'none':'';
-      _pag.ini={nome:(c.nome||'').trim(), apelido:(c.apelido||'').trim(), celular:normTel(c.celular)};
+      const diaIni=parseInt(c.dia)||'', cobIni=(c.dia_cobranca&&c.dia_cobranca!==c.dia)?parseInt(c.dia_cobranca):'';
+      $p('p-dia').value=diaIni; $p('p-dia-cob').value=cobIni;
+      _pag.ini={nome:(c.nome||'').trim(), apelido:(c.apelido||'').trim(), celular:normTel(c.celular), dia:String(diaIni), cob:String(cobIni)};
     }catch(e){}
   }
   document.getElementById('p-id').value=id;
@@ -3655,6 +3659,10 @@ async function confirmarPag(){
     if(nomeN!==ini.nome) upd.nome=nomeN;
     if(apN!==ini.apelido) upd.apelido=apN;
     if(cel!==ini.celular) upd.celular=cel;
+    const diaN=document.getElementById('p-dia').value.trim(), cobN=document.getElementById('p-dia-cob').value.trim();
+    const okDia=v=>v===''||(+v>=1&&+v<=31&&Number.isInteger(+v));
+    if(!okDia(diaN)||!okDia(cobN)||diaN===''){toast('Dia de vencimento/cobrança deve ser entre 1 e 31','err');return;}
+    if(diaN!==ini.dia||cobN!==ini.cob){ upd.dia=parseInt(diaN); upd.dia_cobranca=cobN&&+cobN!==+diaN?parseInt(cobN):null; }
     const terc=chipLista('p');
     if(JSON.stringify(terc)!==JSON.stringify(_pag.tercIni)) upd.nomes_terceiros=terc;
     if(Object.keys(upd).length){

@@ -143,6 +143,21 @@ tbody tr:hover td{background:var(--bg3)}
 .hist-stat{background:var(--bg3);border-radius:var(--radius-sm);padding:.875rem;text-align:center}
 .hist-stat-label{font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:500}
 .hist-stat-val{font-size:18px;font-weight:700}
+.m6{margin-bottom:1.25rem}
+.m6-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;color:var(--muted);margin-bottom:8px;flex-wrap:wrap}
+.m6-head b{color:var(--text);font-size:12px;letter-spacing:.3px;text-transform:uppercase}
+.m6-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.m6-cel{border-radius:var(--radius-sm);padding:.55rem .4rem;text-align:center;border:1px solid var(--border);background:var(--bg3);min-width:0}
+.m6-mes{font-size:11px;font-weight:600;text-transform:capitalize}
+.m6-st{font-size:11px;font-weight:700;margin-top:3px}
+.m6-sub{font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m6-ok{background:var(--green-bg);border-color:var(--green)}.m6-ok .m6-st{color:var(--green)}
+.m6-tarde{background:var(--green-bg);border-color:var(--amber)}.m6-tarde .m6-st{color:var(--amber)}
+.m6-venc{background:var(--red-bg);border-color:var(--red)}.m6-venc .m6-st{color:var(--red)}
+.m6-aberto{background:var(--amber-bg);border-color:var(--amber)}.m6-aberto .m6-st{color:var(--amber)}
+.m6-nada .m6-st,.m6-anul .m6-st{color:var(--muted)}
+.m6-anul{opacity:.7}
+@media(max-width:600px){.m6-grid{grid-template-columns:repeat(3,1fr)}}
 
 /* EMPTY / LOADING */
 .empty{text-align:center;padding:3rem 1rem;color:var(--muted)}
@@ -958,6 +973,7 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="pag-info-sub" id="p-serv"></div>
       <div class="pag-info-sub" id="p-ref" style="margin-top:3px"></div>
     </div>
+    <div id="p-6m"></div>
     <div class="pp-wrap" id="p-parcelas" style="display:none"></div>
     <div class="form-grid">
       <div class="form-group" id="p-data-grp"><label class="form-label">Data do pagamento *</label><input type="date" id="p-data"></div>
@@ -984,6 +1000,7 @@ tbody tr:hover td{background:var(--bg3)}
     <button class="close-btn" onclick="closeOv('ov-hist')"><i class="ti ti-x"></i></button>
     <div class="modal-title" id="h-title">Histórico</div>
     <div class="hist-stats" id="h-stats"></div>
+    <div id="h-6m"></div>
     <div class="table-wrap" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
       <div id="h-lista"></div>
     </div>
@@ -3145,9 +3162,11 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
   document.getElementById('p-obs').value='';
   // Parcela clicada sempre entra; as demais vêm do histórico do cliente
   let abertas=[{id,vencimento:venc,mes_ref:ref,valor:Number(valor),status:'pendente'}];
+  document.getElementById('p-6m').innerHTML='';
   if(clienteId){
     try{
       const hist=await api('GET',`/api/clientes/${clienteId}/historico`);
+      document.getElementById('p-6m').innerHTML=resumo6Meses(hist,`abrirHist('${clienteId}','${esc(nome)}')`);
       const ab=hist.filter(h=>h.status==='pendente'||h.status==='vencido');
       if(ab.some(h=>h.id===id)) abertas=ab;
     }catch(e){}
@@ -3288,6 +3307,38 @@ async function gerarMes(){
 }
 
 /* ── HISTÓRICO ── */
+// Resumo dos últimos 6 meses (por mês de referência): pago em dia, pago com
+// atraso, vencida, em aberto, anulada ou sem cobrança.
+function resumo6Meses(hist, onVer){
+  const d=new Date(), refs=[];
+  for(let i=5;i>=0;i--){ const x=new Date(d.getFullYear(),d.getMonth()-i,1); refs.push(`${x.getFullYear()}-${pad(x.getMonth()+1)}`); }
+  const MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const dias=(a,b)=>Math.round((new Date(a+'T12:00')-new Date(b+'T12:00'))/864e5);
+  const cont={ok:0,tarde:0,venc:0,aberto:0};
+  const cels=refs.map(mr=>{
+    const ms=hist.filter(h=>(h.mes_ref||String(h.vencimento||'').slice(0,7))===mr);
+    const pago=ms.find(h=>h.status==='pago'), venc=ms.find(h=>h.status==='vencido'),
+          ab=ms.find(h=>h.status==='pendente'), an=ms.find(h=>h.status==='cancelado');
+    const [a,m]=mr.split('-'); const rot=`${MES[parseInt(m)-1]}/${a.slice(2)}`;
+    let cls='nada', st='Sem cobrança', sub='—';
+    if(pago){
+      const atraso=pago.pago_em&&pago.vencimento?dias(pago.pago_em,pago.vencimento):0;
+      if(atraso>0){ cls='tarde'; st='Pago c/ atraso'; sub=`${fmtD(pago.pago_em).slice(0,5)} · ${atraso}d`; cont.tarde++; }
+      else { cls='ok'; st='Pago'; sub=pago.pago_em?fmtD(pago.pago_em).slice(0,5):'em dia'; cont.ok++; }
+    } else if(venc){ cls='venc'; st='Vencida'; sub=`${Math.max(0,dias(hoje(),venc.vencimento))}d atraso`; cont.venc++; }
+    else if(ab){ cls='aberto'; st='Em aberto'; sub='vence '+fmtD(ab.vencimento).slice(0,5); cont.aberto++; }
+    else if(an){ cls='anul'; st='Anulada'; sub=fmtV(an.valor); }
+    const val=pago?fmtV(pago.valor_pago??pago.valor):(venc||ab)?fmtV((venc||ab).valor):'';
+    return `<div class="m6-cel m6-${cls}" title="${fmtMesRef(mr)}: ${st}${val?' · '+val:''}"><div class="m6-mes">${rot}</div><div class="m6-st">${st}</div><div class="m6-sub">${sub}</div></div>`;
+  }).join('');
+  const partes=[];
+  if(cont.ok) partes.push(`<span style="color:var(--green)">${cont.ok} em dia</span>`);
+  if(cont.tarde) partes.push(`<span style="color:var(--amber)">${cont.tarde} com atraso</span>`);
+  if(cont.venc) partes.push(`<span style="color:var(--red)">${cont.venc} vencida(s)</span>`);
+  if(cont.aberto) partes.push(`<span style="color:var(--amber)">${cont.aberto} em aberto</span>`);
+  return `<div class="m6"><div class="m6-head"><b>Últimos 6 meses</b><span>${partes.join(' · ')||'sem movimentos'}${onVer?` · <a href="#" onclick="${onVer};return false" style="color:var(--accent)">ver histórico completo</a>`:''}</span></div>
+    <div class="m6-grid">${cels}</div></div>`;
+}
 async function abrirHist(id,nome){
   try{
     const hist=await api('GET',`/api/clientes/${id}/historico`);
@@ -3299,6 +3350,7 @@ async function abrirHist(id,nome){
       <div class="hist-stat"><div class="hist-stat-label">Total pago</div><div class="hist-stat-val" style="color:var(--green)">${fmtV(pg.reduce((s,h)=>s+(h.valor_pago||h.valor),0))}</div></div>
       <div class="hist-stat"><div class="hist-stat-label">Vencidas</div><div class="hist-stat-val" style="color:var(--red)">${vc.length}</div></div>
       <div class="hist-stat"><div class="hist-stat-label">Em aberto</div><div class="hist-stat-val" style="color:var(--amber)">${pn.length}</div></div>`;
+    document.getElementById('h-6m').innerHTML=resumo6Meses(hist);
     document.getElementById('h-lista').innerHTML=hist.length===0
       ?'<div class="empty"><i class="ti ti-receipt-off"></i><p>Nenhum movimento financeiro encontrado.</p></div>'
       :`<table><thead><tr>

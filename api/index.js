@@ -170,6 +170,15 @@ function camposApp(body, upd){
   if (body.app!==undefined)       upd.app=String(body.app||'').trim()||null;
   if (body.app_login!==undefined) upd.app_login=String(body.app_login||'').trim()||null;
   if (body.app_senha!==undefined) upd.app_senha=String(body.app_senha||'').trim()||null;
+  // Várias TVs: cada uma com seu app e acesso. A 1ª também fica em app/app_login/app_senha.
+  if (Array.isArray(body.aparelhos)) {
+    const lista=body.aparelhos.map(a=>({
+      nome:String(a?.nome||'').trim(), app:String(a?.app||'').trim(),
+      login:String(a?.login||'').trim(), senha:String(a?.senha||'').trim()
+    })).filter(a=>a.app||a.login).slice(0,20);
+    upd.aparelhos=lista;
+    upd.app=lista[0]?.app||null; upd.app_login=lista[0]?.login||null; upd.app_senha=lista[0]?.senha||null;
+  }
   return upd;
 }
 // Apelido (usado no WhatsApp) e nomes terceiros (contas que pagam pelo cliente)
@@ -201,7 +210,7 @@ async function gravarCliente(op, row, id){
     const { data, error } = await q.select().single();
     const m = error && String(error.message||'').match(/'([a-z_]+)' column|column "?([a-z_]+)"? (?:of relation|does not exist)/);
     const col = m && (m[1]||m[2]);
-    if (col && col in r && ['dia_cobranca','app','app_login','app_senha','apelido','nomes_terceiros','arquivado','arquivado_em'].includes(col)) { delete r[col]; continue; }
+    if (col && col in r && ['dia_cobranca','app','app_login','app_senha','apelido','nomes_terceiros','arquivado','arquivado_em','aparelhos'].includes(col)) { delete r[col]; continue; }
     return { data, error };
   }
   return { data:null, error:{ message:'falha ao gravar cliente' } };
@@ -298,7 +307,8 @@ export default async function handler(req, res) {
   if (authError || !authData?.user) return err(res, 'Sessão inválida ou expirada', 401);
   // ─── SERVIDORES ───────────────────────────────────────────────
   // ─── APPS (IBO Player, Clouddy...) ────────────────────────────
-  // credencial: 'mac_key' (MAC + Key) ou 'email_senha' (E-mail + Senha)
+  // credencial: 'mac_key' (MAC + Key), 'mac' (só MAC) ou 'email_senha' (E-mail + Senha)
+  const tipoCred=v=>['email_senha','mac'].includes(v)?v:'mac_key';
   if (url === '/apps') {
     if (req.method === 'GET') {
       const { data, error } = await sb.from('apps').select('*').order('nome');
@@ -308,7 +318,7 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const nome=(body.nome||'').trim();
       if (!nome) return err(res,'Nome obrigatório');
-      const credencial = body.credencial==='email_senha' ? 'email_senha' : 'mac_key';
+      const credencial = tipoCred(body.credencial);
       const { data, error } = await sb.from('apps').insert({ id:uid(), nome, credencial, criado:new Date().toISOString() }).select().single();
       if (error) return err(res, /apps/.test(error.message)&&/exist|schema/.test(error.message)?'Rode o MIGRACAO_APPS.sql no Supabase.':'App já existe');
       return res.json(data);
@@ -319,10 +329,10 @@ export default async function handler(req, res) {
     if (req.method==='PUT') {
       const upd={};
       if (body.nome!==undefined) upd.nome=String(body.nome).trim();
-      if (body.credencial!==undefined) upd.credencial=body.credencial==='email_senha'?'email_senha':'mac_key';
+      if (body.credencial!==undefined) upd.credencial=tipoCred(body.credencial);
       const { data:antes } = await sb.from('apps').select('nome').eq('id',id).single();
       const { data, error } = await sb.from('apps').update(upd).eq('id',id).select().single();
-      if (error) return err(res, error.message, 500);
+      if (error) return err(res, /check/i.test(error.message)?'Rode o MIGRACAO_APP_SO_MAC.sql no Supabase para liberar o tipo "Só MAC".':error.message, 500);
       // renomeou: atualiza os clientes que usavam o nome antigo
       if (upd.nome && antes?.nome && antes.nome!==upd.nome) await sb.from('clientes').update({ app:upd.nome }).eq('app',antes.nome);
       return res.json(data);
@@ -368,7 +378,15 @@ export default async function handler(req, res) {
       };
       let { data, error } = await montar(true);
       if (error && params.busca) ({ data } = await montar(false));
-      return res.json(data||[]);
+      data=data||[];
+      // Também acha pelo MAC/e-mail de qualquer TV do cliente (coluna aparelhos)
+      if (params.busca) {
+        const q=String(params.busca).toLowerCase(), ids=new Set(data.map(c=>c.id));
+        const { data:todos } = await selectAll('clientes','*', qq=>params.status?qq.eq('status',params.status):qq);
+        (todos||[]).forEach(c=>{ if(!ids.has(c.id) && Array.isArray(c.aparelhos) && JSON.stringify(c.aparelhos).toLowerCase().includes(q)) data.push(c); });
+        data.sort((x,y)=>String(x.nome).localeCompare(String(y.nome),'pt-BR'));
+      }
+      return res.json(data);
     }
     if (req.method === 'POST') {
       const { nome, celular, servidor, dia, valor, status, obs } = body;

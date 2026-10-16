@@ -111,6 +111,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 @media(max-width:600px){.wapp-cli-grid{grid-template-columns:1fr}}
 .metric-olho{background:none;border:1px solid var(--border);color:var(--muted);border-radius:6px;cursor:pointer;padding:2px 6px;font-size:13px;line-height:1}
 .metric-olho:hover{color:var(--text);border-color:var(--accent)}
+.dev-row{display:grid;grid-template-columns:1fr 1.4fr 34px;gap:6px;align-items:center;margin-bottom:6px;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg2)}
+.dev-row input,.dev-row select{width:100%;min-width:0}
+.dev-row .dev-x{grid-column:3;grid-row:1;height:34px;width:34px;padding:0;justify-content:center}
+.dev-row .dev-login{grid-row:2;grid-column:1}
+.dev-row .dev-senha{grid-row:2;grid-column:2/4}
+.dev-row.so-mac .dev-login{grid-column:1/-1}
+.dev-add{font-size:12px}
 .cli-link{cursor:pointer}.cli-link:hover{color:var(--accent);text-decoration:underline}
 
 /* ── INPUTS ── */
@@ -927,7 +934,7 @@ tbody tr:hover td{background:var(--bg3)}
         <div class="card-body">
           <div class="add-servidor">
             <input type="text" id="novo-app" placeholder="Nome do app (ex: IBO Player, Clouddy...)" onkeydown="if(event.key==='Enter')addApp()">
-            <select id="novo-app-cred" style="max-width:190px"><option value="mac_key">Acesso por MAC e Key</option><option value="email_senha">Acesso por E-mail e Senha</option></select>
+            <select id="novo-app-cred" style="max-width:190px"><option value="mac_key">Acesso por MAC e Key</option><option value="mac">Acesso só por MAC</option><option value="email_senha">Acesso por E-mail e Senha</option></select>
             <button class="btn btn-primary" onclick="addApp()"><i class="ti ti-plus"></i> Adicionar</button>
           </div>
           <div id="lista-apps" class="servidor-tags"><div style="color:var(--muted);font-size:13px">Carregando...</div></div>
@@ -1046,12 +1053,8 @@ tbody tr:hover td{background:var(--bg3)}
         <div class="form-hint">Deixe vazio para cobrar no mesmo dia do vencimento.</div></div>
       <div class="form-group"><label class="form-label">Valor (R$) *</label><input id="f-valor" type="number" step="0.01" placeholder="0,00"></div>
       <div class="form-group"><label class="form-label">Status</label><select id="f-status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></div>
-      <div class="form-group full"><label class="form-label">App</label>
-        <select id="f-app" onchange="atualizarCamposApp()"><option value="">Nenhum / não informado</option></select></div>
-      <div class="form-group" id="fg-app-login" style="display:none"><label class="form-label" id="lb-app-login">MAC</label><input id="f-app-login" autocomplete="off" spellcheck="false"></div>
-      <div class="form-group" id="fg-app-senha" style="display:none"><label class="form-label" id="lb-app-senha">Key</label>
-        <div style="display:flex;gap:4px"><input id="f-app-senha" type="password" autocomplete="new-password" spellcheck="false" style="flex:1">
-        <button type="button" class="btn btn-sm" onclick="const i=document.getElementById('f-app-senha');i.type=i.type==='password'?'text':'password'" title="Mostrar/ocultar"><i class="ti ti-eye"></i></button></div></div>
+      <div class="form-group full"><label class="form-label">TVs / aplicativos</label>
+        <div id="f-devs"></div></div>
       <div class="form-group full"><label class="form-label">Nomes terceiros <span style="font-size:10px;color:var(--muted)">(contas que pagam por este cliente)</span></label>
         <div class="chips" id="f-terc-chips"></div>
         <div class="chip-add"><input id="f-terc-in" placeholder="Nome de quem paga (ex.: Maria da Silva)" onkeydown="if(event.key==='Enter'){event.preventDefault();chipAdd('f')}">
@@ -1076,14 +1079,11 @@ tbody tr:hover td{background:var(--bg3)}
         <div class="pag-cli-full"><label class="form-label">Usuário na plataforma</label><input id="p-nome-in" autocomplete="off" placeholder="Ex.: AnaPaula977"></div>
         <div><label class="form-label">Apelido <span style="font-size:10px;color:var(--muted)">(nome no WhatsApp)</span></label><input id="p-apelido" autocomplete="off" placeholder="Ex.: Ana Paula"></div>
         <div><label class="form-label">Celular (com DDD)</label><input id="p-cel" autocomplete="off" placeholder="Sem telefone — ex.: 11999990000" inputmode="tel"><span id="p-cel-aviso" style="display:none"></span></div>
-        <div class="pag-cli-full"><label class="form-label">Aplicativo</label>
-          <select id="p-app" onchange="pagAppCampos()"><option value="">Nenhum / não informado</option></select></div>
-        <div id="p-app-login-grp" style="display:none"><label class="form-label" id="p-app-login-lb">MAC</label><input id="p-app-login" autocomplete="off" spellcheck="false"></div>
-        <div id="p-app-senha-grp" style="display:none"><label class="form-label" id="p-app-senha-lb">Key</label><input id="p-app-senha" autocomplete="off" spellcheck="false"></div>
         <div class="pag-cli-full"><label class="form-label">Nomes terceiros <span style="font-size:10px;color:var(--muted)">(contas que pagam por este cliente)</span></label>
           <div class="chips" id="p-terc-chips"></div>
           <div class="chip-add"><input id="p-terc-in" autocomplete="off" placeholder="Nome da conta que pagou" onkeydown="if(event.key==='Enter'){event.preventDefault();chipAdd('p')}">
           <button type="button" class="btn btn-sm" onclick="chipAdd('p')"><i class="ti ti-plus"></i> Adicionar</button></div></div>
+        <div class="pag-cli-full"><label class="form-label">TVs / aplicativos</label><div id="p-devs"></div></div>
       </div>
       <div class="pag-info-sub" style="margin-top:8px"><span id="p-serv"></span> · alterações acima ficam salvas no cadastro ao confirmar</div>
       <div class="pag-info-sub" id="p-ref" style="margin-top:3px"></div>
@@ -1883,7 +1883,7 @@ async function renderClientes(){
           <th>Nome</th><th>Celular</th><th>Servidor</th>
           <th>Venc.</th><th>Valor</th><th>Status</th><th></th>
         </tr></thead><tbody>${lista.map(c=>`<tr>
-          <td style="font-weight:600">${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span>${c.app?`<div class="ext-sub" style="font-weight:400" title="${escH(c.app_login||'')}"><i class="ti ti-device-tv"></i> ${escH(c.app)}${c.app_login?` · ${escH(c.app_login)}`:''}</div>`:''}</td>
+          <td style="font-weight:600">${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span>${devDoCliente(c).map(d=>`<div class="ext-sub" style="font-weight:400" title="${escH(d.login||'')}"><i class="ti ti-device-tv"></i> ${d.nome?escH(d.nome)+': ':''}${escH(d.app||'—')}${d.login?` · ${escH(d.login)}`:''}</div>`).join('')}</td>
           <td data-label="Celular">${c.celular||'—'}</td>
           <td data-label="Servidor">${c.servidor||'—'}</td>
           <td data-label="Venc.">Dia ${c.dia}${c.dia_cobranca&&c.dia_cobranca!==c.dia?`<div class="ext-sub" title="Dia de cobrança">cobra dia ${c.dia_cobranca}</div>`:''}</td>
@@ -2661,7 +2661,7 @@ async function renderCadastros(){
       :apps.map(a=>`
         <div class="servidor-tag">
           <span>${escH(a.nome)}</span>
-          <button onclick="alternarCredApp('${a.id}','${a.credencial}')" class="badge" style="cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--muted);font-size:10px" title="Clique para trocar">${a.credencial==='email_senha'?'E-mail/Senha':'MAC/Key'}</button>
+          <button onclick="alternarCredApp('${a.id}','${a.credencial}')" class="badge" style="cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--muted);font-size:10px" title="Clique para trocar">${({email_senha:'E-mail/Senha',mac:'Só MAC'})[a.credencial]||'MAC/Key'}</button>
           <button onclick="editarApp('${a.id}','${esc(a.nome)}')" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0 2px" title="Editar"><i class="ti ti-edit" style="font-size:13px"></i></button>
           <button onclick="delApp('${a.id}')" style="background:none;border:none;cursor:pointer;color:var(--red);padding:0 2px" title="Excluir"><i class="ti ti-x" style="font-size:13px"></i></button>
         </div>`).join('');
@@ -2717,9 +2717,11 @@ async function editarApp(id,nomeAtual){
   try{ await api('PUT',`/api/apps/${id}`,{nome:nome.trim()}); toast('App atualizado!'); renderCadastros(); }catch{ toast('Erro ao editar','err'); }
 }
 async function alternarCredApp(id,atual){
-  const nova=atual==='email_senha'?'mac_key':'email_senha';
-  if(!confirm(`Trocar o acesso deste app para ${nova==='email_senha'?'E-mail e Senha':'MAC e Key'}?`)) return;
-  try{ await api('PUT',`/api/apps/${id}`,{credencial:nova}); renderCadastros(); }catch{ toast('Erro ao alterar','err'); }
+  const nova=({mac_key:'mac',mac:'email_senha',email_senha:'mac_key'})[atual]||'mac';
+  const NOME={mac_key:'MAC e Key',mac:'só MAC',email_senha:'E-mail e Senha'};
+  if(!confirm(`Trocar o acesso deste app para ${NOME[nova]}?`)) return;
+  try{ await api('PUT',`/api/apps/${id}`,{credencial:nova}); renderCadastros(); }
+  catch(e){ toast(String(e.message||'').includes('MIGRACAO')?'Rode o MIGRACAO_APP_SO_MAC.sql no Supabase':'Erro ao alterar','err'); }
 }
 async function delApp(id){
   if(!confirm('Excluir este app? Os clientes que usam ele mantêm o nome gravado.')) return;
@@ -2837,8 +2839,6 @@ async function openClienteModal(id){
   // Apps pré-cadastrados
   try{
     _appsCache=await api('GET','/api/apps');
-    document.getElementById('f-app').innerHTML='<option value="">Nenhum / não informado</option>'+
-      _appsCache.map(a=>`<option value="${escH(a.nome)}">${escH(a.nome)}</option>`).join('');
   }catch{ _appsCache=[]; }
 
   const f=x=>document.getElementById(x);
@@ -2859,10 +2859,7 @@ async function openClienteModal(id){
       f('f-valor').value=c.valor;
       f('f-status').value=c.status;
       f('f-obs').value=c.obs||'';
-      if(c.app && !_appsCache.some(a=>a.nome===c.app)) f('f-app').insertAdjacentHTML('beforeend',`<option value="${escH(c.app)}">${escH(c.app)}</option>`);
-      f('f-app').value=c.app||'';
-      f('f-app-login').value=c.app_login||'';
-      f('f-app-senha').value=c.app_senha||'';
+      _dev.f=devDoCliente(c);
       f('f-id').value=c.id;
     }catch(e){ toast('Erro ao carregar cliente','err'); return; }
   } else {
@@ -2876,30 +2873,51 @@ async function openClienteModal(id){
     f('f-dia-cob').value='';
     f('f-valor').value='';
     f('f-obs').value='';
-    f('f-app').value=''; f('f-app-login').value=''; f('f-app-senha').value='';
+    _dev.f=[];
     f('f-status').value='ativo';
     f('f-id').value='';
   }
-  f('f-app-senha').type='password';
   f('f-terc-in').value=''; chipRender('f');
-  atualizarCamposApp();
+  devRender('f');
   openOv('ov-cliente');
 }
 
 let _appsCache=[];
-function credDoApp(nome){ const a=_appsCache.find(x=>x.nome===nome); return a?a.credencial:(/clouddy/i.test(nome||'')?'email_senha':'mac_key'); }
-function atualizarCamposApp(){
-  const app=document.getElementById('f-app').value;
-  const email=credDoApp(app)==='email_senha';
-  document.getElementById('fg-app-login').style.display=app?'':'none';
-  document.getElementById('fg-app-senha').style.display=app?'':'none';
-  document.getElementById('lb-app-login').textContent=email?'E-mail':'MAC';
-  document.getElementById('lb-app-senha').textContent=email?'Senha':'Key';
-  const li=document.getElementById('f-app-login');
-  li.type=email?'email':'text';
-  li.placeholder=email?'email@exemplo.com':'00:1A:2B:3C:4D:5E';
-  document.getElementById('f-app-senha').placeholder=email?'Senha do app':'Key do app';
+/* ── TVs / APLICATIVOS DO CLIENTE (várias TVs, cada uma com seu app) ── */
+const _dev={f:[],p:[]};
+function devDoCliente(c){
+  const a=Array.isArray(c&&c.aparelhos)?c.aparelhos.filter(x=>x&&(x.app||x.login)):[];
+  if(a.length) return a.map(x=>({nome:x.nome||'',app:x.app||'',login:x.login||'',senha:x.senha||''}));
+  return c&&c.app?[{nome:'',app:c.app,login:c.app_login||'',senha:c.app_senha||''}]:[];
 }
+function devRender(k,desabilitar){
+  const box=document.getElementById(k+'-devs'); if(!box) return;
+  const opcoes=atual=>{
+    const nomes=_appsCache.map(a=>a.nome); if(atual&&!nomes.includes(atual)) nomes.push(atual);
+    return '<option value="">App...</option>'+nomes.map(n=>`<option value="${escH(n)}"${n===atual?' selected':''}>${escH(n)}</option>`).join('');
+  };
+  box.innerHTML=_dev[k].map((d,i)=>{
+    const t=credDoApp(d.app), email=t==='email_senha', soMac=t==='mac';
+    const dis=desabilitar?' disabled':'';
+    return `<div class="dev-row${soMac?' so-mac':''}">
+      <input value="${escH(d.nome)}" placeholder="TV ${i+1}" oninput="_dev.${k}[${i}].nome=this.value" title="Nome da TV (opcional)" autocomplete="off"${dis}>
+      <select onchange="_dev.${k}[${i}].app=this.value;devRender('${k}')"${dis}>${opcoes(d.app)}</select>
+      <input class="dev-login" value="${escH(d.login)}" placeholder="${email?'E-mail':'MAC'}" oninput="_dev.${k}[${i}].login=this.value" autocomplete="off" spellcheck="false"${dis}>
+      ${soMac?'':`<input class="dev-senha" value="${escH(d.senha)}" placeholder="${email?'Senha':'Key'}" oninput="_dev.${k}[${i}].senha=this.value" autocomplete="off" spellcheck="false"${dis}>`}
+      <button type="button" class="btn btn-sm btn-danger dev-x" onclick="_dev.${k}.splice(${i},1);devRender('${k}')" title="Remover esta TV"${dis}><i class="ti ti-x"></i></button>
+    </div>`;
+  }).join('')+`<button type="button" class="btn btn-sm dev-add" onclick="_dev.${k}.push({nome:'',app:'',login:'',senha:''});devRender('${k}')"${desabilitar?' disabled':''}><i class="ti ti-plus"></i> ${_dev[k].length?'Adicionar outra TV':'Adicionar TV / aplicativo'}</button>`;
+}
+// Lista pronta para salvar: MAC formatado; app "só MAC" não guarda key
+function devLista(k){
+  return _dev[k].map(d=>{
+    const t=credDoApp(d.app);
+    let login=String(d.login||'').trim(); if(d.app && t!=='email_senha') login=formatarMac(login);
+    return {nome:String(d.nome||'').trim(), app:d.app||'', login, senha:t==='mac'?'':String(d.senha||'').trim()};
+  }).filter(d=>d.app||d.login);
+}
+
+function credDoApp(nome){ const a=_appsCache.find(x=>x.nome===nome); return a?a.credencial:(/clouddy/i.test(nome||'')?'email_senha':'mac_key'); }
 function formatarMac(v){
   const h=String(v||'').replace(/[^0-9a-f]/gi,'').toUpperCase();
   return h.length===12 ? h.match(/.{2}/g).join(':') : String(v||'').trim();
@@ -2934,9 +2952,7 @@ async function salvarCliente(){
     valor: parseFloat(valor),
     status: document.getElementById('f-status').value,
     obs: g('f-obs'),
-    app: g('f-app'),
-    app_login: g('f-app') ? (credDoApp(g('f-app'))==='mac_key' ? formatarMac(g('f-app-login')) : g('f-app-login')) : '',
-    app_senha: g('f-app') ? g('f-app-senha') : ''
+    aparelhos: devLista('f')
   };
 
   try{
@@ -3537,11 +3553,9 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
   _terc.p=[]; chipRender('p'); document.getElementById('p-terc-in').value='';
   const $p=x=>document.getElementById(x);
   $p('p-nome-in').value=nome; $p('p-apelido').value=''; $p('p-cel').value=''; $p('p-dia').value=''; $p('p-dia-cob').value='';
-  ['p-nome-in','p-apelido','p-cel','p-terc-in','p-dia','p-dia-cob','p-app','p-app-login','p-app-senha'].forEach(k=>$p(k).disabled=!clienteId);
-  $p('p-app').value=''; $p('p-app-login').value=''; $p('p-app-senha').value='';
+  ['p-nome-in','p-apelido','p-cel','p-terc-in','p-dia','p-dia-cob'].forEach(k=>$p(k).disabled=!clienteId);
   try{ _appsCache=await api('GET','/api/apps'); }catch{ _appsCache=_appsCache||[]; }
-  $p('p-app').innerHTML='<option value="">Nenhum / não informado</option>'+_appsCache.map(a=>`<option value="${escH(a.nome)}">${escH(a.nome)}</option>`).join('');
-  pagAppCampos();
+  _dev.p=[]; devRender('p',!clienteId);
   if(clienteId){
     try{
       const c=await api('GET',`/api/clientes/${clienteId}`);
@@ -3551,10 +3565,9 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
       $p('p-nome-in').value=c.nome||nome; $p('p-apelido').value=c.apelido||''; $p('p-cel').value=c.celular||'';
       const diaIni=parseInt(c.dia)||'', cobIni=(c.dia_cobranca&&c.dia_cobranca!==c.dia)?parseInt(c.dia_cobranca):'';
       $p('p-dia').value=diaIni; $p('p-dia-cob').value=cobIni;
-      if(c.app && !_appsCache.some(a=>a.nome===c.app)) $p('p-app').insertAdjacentHTML('beforeend',`<option value="${escH(c.app)}">${escH(c.app)}</option>`);
-      $p('p-app').value=c.app||''; $p('p-app-login').value=c.app_login||''; $p('p-app-senha').value=c.app_senha||''; pagAppCampos();
+      _dev.p=devDoCliente(c); devRender('p');
       _pag.ini={nome:(c.nome||'').trim(), apelido:(c.apelido||'').trim(), celular:normTel(c.celular), dia:String(diaIni), cob:String(cobIni),
-        app:c.app||'', app_login:c.app_login||'', app_senha:c.app_senha||''};
+        devs:JSON.stringify(devLista('p'))};
     }catch(e){}
   }
   document.getElementById('p-id').value=id;
@@ -3590,17 +3603,6 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
   openOv('ov-pagamento');
 }
 
-// Aplicativo do cliente na janela de pagamento: MAC/Key ou E-mail/Senha conforme o app
-function pagAppCampos(){
-  const app=document.getElementById('p-app').value, email=credDoApp(app)==='email_senha';
-  document.getElementById('p-app-login-grp').style.display=app?'':'none';
-  document.getElementById('p-app-senha-grp').style.display=app?'':'none';
-  document.getElementById('p-app-login-lb').textContent=email?'E-mail':'MAC';
-  document.getElementById('p-app-senha-lb').textContent=email?'Senha':'Key';
-  const li=document.getElementById('p-app-login');
-  li.placeholder=email?'email@exemplo.com':'00:1A:2B:3C:4D:5E';
-  document.getElementById('p-app-senha').placeholder=email?'Senha do app':'Key do app';
-}
 function renderPagParcelas(){
   const box=document.getElementById('p-parcelas');
   const multi=_pag.parcelas.length>1;
@@ -3684,10 +3686,8 @@ async function confirmarPag(){
     const diaN=document.getElementById('p-dia').value.trim(), cobN=document.getElementById('p-dia-cob').value.trim();
     const okDia=v=>v===''||(+v>=1&&+v<=31&&Number.isInteger(+v));
     if(!okDia(diaN)||!okDia(cobN)||diaN===''){toast('Dia de vencimento/cobrança deve ser entre 1 e 31','err');return;}
-    const appN=document.getElementById('p-app').value;
-    let loginN=appN?document.getElementById('p-app-login').value.trim():'', senhaN=appN?document.getElementById('p-app-senha').value.trim():'';
-    if(appN && credDoApp(appN)==='mac_key') loginN=formatarMac(loginN);
-    if(appN!==(ini.app||'')||loginN!==(ini.app_login||'')||senhaN!==(ini.app_senha||'')){ upd.app=appN; upd.app_login=loginN; upd.app_senha=senhaN; }
+    const devsN=devLista('p');
+    if(JSON.stringify(devsN)!==ini.devs) upd.aparelhos=devsN;
     if(diaN!==ini.dia||cobN!==ini.cob){ upd.dia=parseInt(diaN); upd.dia_cobranca=cobN&&+cobN!==+diaN?parseInt(cobN):null; }
     const terc=chipLista('p');
     if(JSON.stringify(terc)!==JSON.stringify(_pag.tercIni)) upd.nomes_terceiros=terc;

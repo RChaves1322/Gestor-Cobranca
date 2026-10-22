@@ -46,6 +46,33 @@ async function marcarVencidos() {
     .lt('vencimento', hoje);
 }
 
+// Receita (outras_vendas): confere os obrigatórios e monta a linha da tabela.
+// total = valor unitário × quantidade quando não vier um total válido.
+function validarReceita(b){
+  let dt=String(b.data||'').trim();
+  if (dt.includes('/')) { const [d,m,a]=dt.split('/'); dt=`${a}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+  const tipo=String(b.tipo_rec||'').trim(), cliente=String(b.cliente||'').trim(), produto=String(b.produto||'').trim();
+  const vu=parseFloat(String(b.valor_un).replace(',','.')), q=parseInt(b.qtde)||1;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dt)) return { erro:'Data inválida.' };
+  if (!tipo)    return { erro:'Informe o tipo de receita.' };
+  if (!cliente) return { erro:'Informe o cliente.' };
+  if (!produto) return { erro:'Informe o produto.' };
+  if (!(vu>0))  return { erro:'O valor unitário deve ser maior que zero.' };
+  if (q<1)      return { erro:'A quantidade deve ser a partir de 1.' };
+  let total=parseFloat(b.total); if (!(total>0)) total=Number((vu*q).toFixed(2));
+  return { row:{ data:dt, tipo_rec:tipo, cliente, produto, valor_un:vu, qtde:q, total, mes_ref:dt.slice(0,7) } };
+}
+// Mensagem clara para erros do Supabase (restrição, RLS, coluna obrigatória...)
+function erroSupabase(e, acao){
+  const m=String(e?.message||''), c=String(e?.code||'');
+  console.error(`[supabase] falha ao ${acao}:`, c, m);
+  if (c==='42501' || /row-level security|permission denied/i.test(m)) return `Sem permissão para ${acao} (política de segurança do banco).`;
+  if (c==='23502' || /null value in column/i.test(m)) return `Não foi possível ${acao}: falta um campo obrigatório (${(m.match(/column "([^"]+)"/)||[])[1]||'?'}).`;
+  if (c==='23505') return `Não foi possível ${acao}: registro duplicado.`;
+  if (c==='23514' || c==='22P02' || c==='22007' || c==='22008') return `Não foi possível ${acao}: valor inválido em algum campo.`;
+  if (c==='PGRST204' || /column .* does not exist|schema cache/i.test(m)) return `Não foi possível ${acao}: a tabela no banco está diferente do esperado.`;
+  return `Erro ao ${acao}: ${m||'falha no banco'}`;
+}
 function err(res, msg, code=400) {
   return res.status(code).json({ erro: msg });
 }
@@ -1246,9 +1273,10 @@ export default async function handler(req, res) {
       return res.json(data);
     }
     if (req.method === 'POST') {
-      let { data:dt, tipo_rec, cliente, produto, valor_un, qtde, total } = body;
-      if (dt?.includes('/')) { const [d,m,a]=dt.split('/'); dt=`${a}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`; }
-      const { data } = await sb.from('outras_vendas').insert({ id:uid(), data:dt, tipo_rec:tipo_rec.trim(), cliente:cliente.trim(), produto:(produto||'').trim(), valor_un:parseFloat(valor_un), qtde:parseInt(qtde)||1, total:parseFloat(total), mes_ref:dt.slice(0,7), criado:new Date().toISOString() }).select().single();
+      const v=validarReceita(body);
+      if (v.erro) return err(res, v.erro);
+      const { data, error } = await sb.from('outras_vendas').insert({ id:uid(), ...v.row, criado:new Date().toISOString() }).select().single();
+      if (error) return err(res, erroSupabase(error, 'salvar a receita'), 500);
       return res.json(data);
     }
   }
@@ -1287,7 +1315,13 @@ export default async function handler(req, res) {
   if (url.match(/^\/outras-vendas\/[^/]+$/)) {
     const id=url.split('/')[2];
     if (req.method==='GET') { const { data }=await sb.from('outras_vendas').select('*').eq('id',id).single(); return data ? res.json(data) : err(res,'Não encontrado',404); }
-    if (req.method==='PUT') { let { data:dt,...rest }=body; if(dt?.includes('/')) { const p=dt.split('/'); dt=`${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`; } const { data }=await sb.from('outras_vendas').update({ data:dt, tipo_rec:rest.tipo_rec, cliente:rest.cliente, produto:rest.produto, valor_un:parseFloat(rest.valor_un), qtde:parseInt(rest.qtde)||1, total:parseFloat(rest.total), mes_ref:dt.slice(0,7) }).eq('id',id).select().single(); return res.json(data); }
+    if (req.method==='PUT') {
+      const v=validarReceita(body);
+      if (v.erro) return err(res, v.erro);
+      const { data, error }=await sb.from('outras_vendas').update(v.row).eq('id',id).select().single();
+      if (error) return err(res, erroSupabase(error, 'atualizar a receita'), 500);
+      return res.json(data);
+    }
     if (req.method==='DELETE') { await sb.from('outras_vendas').delete().eq('id',id); return res.json({ ok:true }); }
   }
 

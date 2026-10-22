@@ -636,7 +636,7 @@ tbody tr:hover td{background:var(--bg3)}
     <!-- CLIENTES -->
     <div id="page-clientes" class="page">
       <div class="filter-bar">
-        <input type="text" id="bc" placeholder="Buscar por nome ou servidor..." oninput="renderClientes()">
+        <input type="text" id="bc" placeholder="Buscar por nome, apelido, nome terceiro, servidor ou MAC..." oninput="clearTimeout(window._bcT);window._bcT=setTimeout(renderClientes,250)">
         <select id="fsc" onchange="renderClientes()">
           <option value="">Todos os status</option>
           <option value="ativo">Ativos</option>
@@ -1877,15 +1877,17 @@ async function renderClientes(){
   let url='/api/clientes?';
   if(fst)url+=`status=${fst}&`;
   if(busca)url+=`busca=${encodeURIComponent(busca)}&`;
+  const seq=(window._bcSeq=(window._bcSeq||0)+1);
   try{
     const lista=await api('GET',url);
+    if(seq!==window._bcSeq) return;   // chegou resposta de uma busca antiga
     document.getElementById('clientes-table').innerHTML=lista.length===0
       ?`<div class="empty"><i class="ti ti-users"></i><p>${busca?'Nenhum cliente encontrado.':'Nenhum cliente cadastrado ainda.'}</p></div>`
       :`<table><thead><tr>
           <th>Nome</th><th>Celular</th><th>Servidor</th>
           <th>Venc.</th><th>Valor</th><th>Status</th><th></th>
         </tr></thead><tbody>${lista.map(c=>`<tr>
-          <td style="font-weight:600">${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span>${devDoCliente(c).map(d=>`<div class="ext-sub" style="font-weight:400" title="${escH(d.login||'')}"><i class="ti ti-device-tv"></i> ${d.nome?escH(d.nome)+': ':''}${escH(d.app||'—')}${d.login?` · ${escH(d.login)}`:''}</div>`).join('')}</td>
+          <td style="font-weight:600">${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span>${(c.apelido||(c.nomes_terceiros||[]).length)?`<div class="ext-sub" style="font-weight:400">${c.apelido?`Apelido: ${escH(c.apelido)}`:''}${c.apelido&&(c.nomes_terceiros||[]).length?' · ':''}${(c.nomes_terceiros||[]).length?`Terceiros: ${c.nomes_terceiros.map(escH).join(', ')}`:''}</div>`:''}${devDoCliente(c).map(d=>`<div class="ext-sub" style="font-weight:400" title="${escH(d.login||'')}"><i class="ti ti-device-tv"></i> ${d.nome?escH(d.nome)+': ':''}${escH(d.app||'—')}${d.login?` · ${escH(d.login)}`:''}</div>`).join('')}</td>
           <td data-label="Celular">${c.celular||'—'}</td>
           <td data-label="Servidor">${c.servidor||'—'}</td>
           <td data-label="Venc.">Dia ${c.dia}${c.dia_cobranca&&c.dia_cobranca!==c.dia?`<div class="ext-sub" title="Dia de cobrança">cobra dia ${c.dia_cobranca}</div>`:''}</td>
@@ -1943,7 +1945,7 @@ async function cobsClientesBusca(){
       <div class="cob-cli-list">${mostrar.map(c=>`
         <div class="cob-cli-item" onclick="abrirHist('${c.id}','${esc(c.nome)}')">
           <div style="min-width:0"><div class="cob-cli-nome" title="${escH(c.nome)}">${escH(c.nome)}</div>
-            <div class="cob-cli-sub">${[c.apelido?'Apelido: '+escH(c.apelido):'',escH(c.servidor||''),fmtV(c.valor)+' · dia '+c.dia,c.status==='ativo'?'':'<span style="color:var(--red)">inativo</span>'].filter(Boolean).join(' · ')}</div></div>
+            <div class="cob-cli-sub">${[c.apelido?'Apelido: '+escH(c.apelido):'',(c.nomes_terceiros||[]).filter(n=>norm(n).includes(nq)).map(n=>'Terceiro: '+escH(n)).join(', '),escH(c.servidor||''),fmtV(c.valor)+' · dia '+c.dia,c.status==='ativo'?'':'<span style="color:var(--red)">inativo</span>'].filter(Boolean).join(' · ')}</div></div>
           <span class="btn btn-sm" style="color:var(--accent);border-color:var(--accent);flex-shrink:0"><i class="ti ti-clock"></i> Pagamentos</span>
         </div>`).join('')}</div>`;
     box.style.display='';
@@ -2020,9 +2022,11 @@ async function renderCobs(vencerEmDias){
       lista = await api('GET',url);
       // Pagos/cancelados ficam escondidos, a não ser que peça para ver (ou filtre por eles)
       const escondidos=lista.filter(c=>c.status==='pago'||c.status==='cancelado').length;
-      if(!fs && !_cobsPagos) lista=lista.filter(c=>c.status!=='pago'&&c.status!=='cancelado');
-      btnPagos('cobs-pagos-btn',_cobsPagos||!!fs,fs?0:escondidos);
-      const bp=document.getElementById('cobs-pagos-btn'); if(bp) bp.disabled=!!fs;
+      // Buscando um cliente: mostra tudo dele, inclusive os pagos, para conferir
+      const buscando=!!String(busca||'').trim();
+      if(!fs && !_cobsPagos && !buscando) lista=lista.filter(c=>c.status!=='pago'&&c.status!=='cancelado');
+      btnPagos('cobs-pagos-btn',_cobsPagos||!!fs||buscando,(fs||buscando)?0:escondidos);
+      const bp=document.getElementById('cobs-pagos-btn'); if(bp){ bp.disabled=!!fs||buscando; bp.title=buscando?'Na busca por cliente os pagos sempre aparecem':''; }
     }
     lista.sort(ordemVenc);
 

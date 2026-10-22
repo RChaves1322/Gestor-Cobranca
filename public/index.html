@@ -118,6 +118,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .dev-row .dev-senha{grid-row:2;grid-column:2/4}
 .dev-row.so-mac .dev-login{grid-column:1/-1}
 .dev-add{font-size:12px}
+.campo-erro{border-color:var(--red)!important;box-shadow:0 0 0 1px var(--red)}
+.campo-erro-msg{color:var(--red);font-size:11px;margin-top:4px}
 .cli-link{cursor:pointer}.cli-link:hover{color:var(--accent);text-decoration:underline}
 
 /* ── INPUTS ── */
@@ -1392,7 +1394,7 @@ tbody tr:hover td{background:var(--bg3)}
           <option value="">Selecione...</option>
         </select>
       </div>
-      <div class="form-group full"><label class="form-label">Cliente *</label><input id="ov-cliente" placeholder="Nome do cliente"></div>
+      <div class="form-group full"><label class="form-label">Cliente *</label><input id="ov-venda-cliente" placeholder="Nome do cliente"></div>
       <div class="form-group full"><label class="form-label">Produto *</label><input id="ov-produto" placeholder="Descrição do produto/serviço"></div>
       <div class="form-group"><label class="form-label">Valor unitário (R$) *</label><input type="number" step="0.01" id="ov-valor-un" oninput="ovCalcTotal()"></div>
       <div class="form-group"><label class="form-label">Quantidade</label><input type="number" id="ov-qtde" value="1" min="1" oninput="ovCalcTotal()"></div>
@@ -4309,7 +4311,7 @@ async function ovCarregarSelectTipos(selecionado){
       return;
     }
     sel.innerHTML='<option value="">Selecione...</option>'+
-      tipos.map(t=>`<option value="${t}"${t===selecionado?' selected':''}>${t}</option>`).join('');
+      tipos.map(t=>`<option value="${escH(t)}"${t===selecionado?' selected':''}>${escH(t)}</option>`).join('');
   }catch{
     document.getElementById('ov-tipo-rec').innerHTML='<option value="">Erro ao carregar tipos</option>';
   }
@@ -4319,12 +4321,13 @@ async function ovAbrirNovo(){
   ovEditId=null;
   document.getElementById('ov-modal-title').textContent='Nova receita';
   document.getElementById('ov-data').value=hoje();
-  document.getElementById('ov-cliente').value='';
+  document.getElementById('ov-venda-cliente').value='';
   document.getElementById('ov-produto').value='';
   document.getElementById('ov-valor-un').value='';
   document.getElementById('ov-qtde').value='1';
   document.getElementById('ov-total').value='';
   document.getElementById('ov-edit-id').value='';
+  ovLimparErros();
   await ovCarregarSelectTipos('');
   openOv('ov-modal-venda');
 }
@@ -4336,12 +4339,13 @@ async function ovEditar(id){
     ovEditId = id;
     document.getElementById('ov-modal-title').textContent = 'Editar receita';
     document.getElementById('ov-data').value      = r.data;
-    document.getElementById('ov-cliente').value   = r.cliente;
+    document.getElementById('ov-venda-cliente').value = r.cliente;
     document.getElementById('ov-produto').value   = r.produto;
     document.getElementById('ov-valor-un').value  = r.valor_un;
     document.getElementById('ov-qtde').value      = r.qtde;
     document.getElementById('ov-total').value     = r.total;
     document.getElementById('ov-edit-id').value   = id;
+    ovLimparErros();
     await ovCarregarSelectTipos(r.tipo_rec);
     openOv('ov-modal-venda');
   } catch(e){ toast('Erro ao carregar registro','err'); console.error(e); }
@@ -4353,24 +4357,71 @@ function ovCalcTotal(){
   document.getElementById('ov-total').value=(vu*q).toFixed(2);
 }
 
+// Validação campo a campo: destaca o campo com problema e diz o motivo
+const OV_CAMPOS=['ov-data','ov-tipo-rec','ov-venda-cliente','ov-produto','ov-valor-un','ov-qtde'];
+function ovLimparErros(){
+  OV_CAMPOS.forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    el.classList.remove('campo-erro');
+    const m=el.parentElement.querySelector('.campo-erro-msg'); if(m) m.remove();
+  });
+}
+function ovMarcarErro(id,msg){
+  const el=document.getElementById(id); if(!el) return;
+  el.classList.add('campo-erro');
+  const m=document.createElement('div'); m.className='campo-erro-msg'; m.textContent=msg;
+  el.parentElement.appendChild(m);
+}
+function ovValidar(){
+  const val=id=>String(document.getElementById(id)?.value??'').trim();
+  const erros=[];
+  const dt=val('ov-data');
+  if(!dt) erros.push(['ov-data','Informe a data.']);
+  else if(!/^\d{4}-\d{2}-\d{2}$/.test(dt) || isNaN(new Date(dt+'T12:00:00'))) erros.push(['ov-data','Data inválida.']);
+  const selTipo=document.getElementById('ov-tipo-rec');
+  if(!val('ov-tipo-rec')) erros.push(['ov-tipo-rec', selTipo.options.length<=1 && !selTipo.options[0]?.textContent.startsWith('Selecione')
+      ? 'Nenhum tipo de receita cadastrado — cadastre em Cadastros Gerais.' : 'Selecione o tipo de receita.']);
+  if(!val('ov-venda-cliente')) erros.push(['ov-venda-cliente','Informe o cliente.']);
+  if(!val('ov-produto')) erros.push(['ov-produto','Informe o produto.']);
+  const vu=parseFloat(val('ov-valor-un').replace(',','.'));
+  if(val('ov-valor-un')==='') erros.push(['ov-valor-un','Informe o valor unitário.']);
+  else if(!(vu>0)) erros.push(['ov-valor-un','O valor unitário deve ser maior que zero.']);
+  const q=val('ov-qtde')===''?1:Number(val('ov-qtde'));
+  if(!Number.isInteger(q) || q<1) erros.push(['ov-qtde','A quantidade deve ser um número inteiro a partir de 1.']);
+  return { erros, dt, vu, q };
+}
+
 async function ovSalvar(){
-  const g=x=>document.getElementById(x).value.trim();
-  if(!g('ov-data')||!g('ov-tipo-rec')||!g('ov-cliente')||!g('ov-produto')||!g('ov-valor-un')){
-    toast('Preencha todos os campos obrigatórios','err'); return;
+  ovLimparErros();
+  const { erros, dt, vu, q }=ovValidar();
+  // Diagnóstico: registra só os NOMES dos campos que falharam, nunca os valores digitados
+  console.debug('[receitas] validação:', erros.length?erros.map(e=>e[0]).join(', '):'ok');
+  if(erros.length){
+    erros.forEach(([id,msg])=>ovMarcarErro(id,msg));
+    document.getElementById(erros[0][0]).focus();
+    toast(erros.length===1?erros[0][1]:`Corrija os ${erros.length} campos destacados em vermelho.`,'err');
+    return;
   }
+  const g=x=>document.getElementById(x).value.trim();
+  const totalCampo=parseFloat(document.getElementById('ov-total').value);
   const body={
-    data:g('ov-data'), tipo_rec:g('ov-tipo-rec'), cliente:g('ov-cliente'),
-    produto:g('ov-produto'), valor_un:parseFloat(g('ov-valor-un')),
-    qtde:parseInt(document.getElementById('ov-qtde').value)||1,
-    total:parseFloat(document.getElementById('ov-total').value)||parseFloat(g('ov-valor-un'))
+    data:dt, tipo_rec:g('ov-tipo-rec'), cliente:g('ov-venda-cliente'),
+    produto:g('ov-produto'), valor_un:vu, qtde:q,
+    // Total = valor unitário × quantidade (preenchido automaticamente; se o campo estiver vazio, calcula aqui)
+    total:Number.isFinite(totalCampo)&&totalCampo>0 ? totalCampo : Number((vu*q).toFixed(2))
   };
   try{
     if(ovEditId) await api('PUT',`/api/outras-vendas/${ovEditId}`,body);
     else         await api('POST','/api/outras-vendas',body);
     closeOv('ov-modal-venda');
-    toast(ovEditId?'Registro atualizado!':'Venda salva!');
+    toast(ovEditId?'Registro atualizado!':'Receita salva!');
     renderOutrasVendas();
-  }catch(e){toast('Erro ao salvar','err');}
+  }catch(e){
+    let msg='Erro ao salvar';
+    try{ msg=JSON.parse(e.message).erro||msg; }catch{ if(e?.message && e.message.length<200) msg=e.message; }
+    console.warn('[receitas] erro ao salvar:', msg);
+    toast(msg,'err');
+  }
 }
 
 async function ovExcluir(id){

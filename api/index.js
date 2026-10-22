@@ -123,6 +123,15 @@ function mesesCobertos(v){ const n=parseInt(v,10); return Number.isInteger(n)&&n
 function somarMeses(mr, n){ const [a,m]=mr.split('-').map(Number); const d=new Date(a, m-1+n, 1); return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
 
 // ── Extrato bancário (OFX) ───────────────────────────────────
+// Cliente bate com a busca? Nome, apelido, nomes terceiros, servidor, app e MAC/e-mail
+// de qualquer TV — sem diferenciar maiúsculas nem acentos.
+function clienteBateBusca(c, busca){
+  const b=semAcento(String(busca||'').trim()).toLowerCase(); if(!b) return true;
+  const campos=[c.nome, c.apelido, ...(Array.isArray(c.nomes_terceiros)?c.nomes_terceiros:[]),
+    c.servidor, c.app, c.app_login,
+    ...(Array.isArray(c.aparelhos)?c.aparelhos.flatMap(a=>[a?.nome,a?.app,a?.login]):[])];
+  return campos.some(v=>v && semAcento(String(v)).toLowerCase().includes(b));
+}
 function semAcento(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 const PALAVRAS_VAZIAS=new Set(['DE','DA','DO','DAS','DOS','E','LTDA','ME','SA','S','A','EPP','EIRELI']);
 function tokensNome(n){
@@ -396,23 +405,13 @@ export default async function handler(req, res) {
   // ─── CLIENTES ─────────────────────────────────────────────────
   if (url === '/clientes') {
     if (req.method === 'GET') {
-      // A busca também procura pelo MAC/e-mail do app (se a coluna já existir)
-      const montar=comApp=>{
-        let q = sb.from('clientes').select('*').order('nome');
-        if (params.status) q = q.eq('status', params.status);
-        if (params.busca)  q = q.or(`nome.ilike.%${params.busca}%,servidor.ilike.%${params.busca}%${comApp?`,app_login.ilike.%${params.busca}%,app.ilike.%${params.busca}%,apelido.ilike.%${params.busca}%`:''}`);
-        return q;
-      };
-      let { data, error } = await montar(true);
-      if (error && params.busca) ({ data } = await montar(false));
-      data=data||[];
-      // Também acha pelo MAC/e-mail de qualquer TV do cliente (coluna aparelhos)
-      if (params.busca) {
-        const q=String(params.busca).toLowerCase(), ids=new Set(data.map(c=>c.id));
-        const { data:todos } = await selectAll('clientes','*', qq=>params.status?qq.eq('status',params.status):qq);
-        (todos||[]).forEach(c=>{ if(!ids.has(c.id) && Array.isArray(c.aparelhos) && JSON.stringify(c.aparelhos).toLowerCase().includes(q)) data.push(c); });
-        data.sort((x,y)=>String(x.nome).localeCompare(String(y.nome),'pt-BR'));
-      }
+      // Busca por nome, apelido, nomes terceiros, servidor, app e MAC/e-mail de
+      // qualquer TV — sem diferenciar maiúsculas nem acentos.
+      const { data:todos, error } = await selectAll('clientes','*', q=>params.status?q.eq('status',params.status):q);
+      if (error) return err(res, `Erro ao carregar clientes: ${error.message}`, 500);
+      let data=todos||[];
+      if (String(params.busca||'').trim()) data=data.filter(c=>clienteBateBusca(c, params.busca));
+      data.sort((x,y)=>String(x.nome).localeCompare(String(y.nome),'pt-BR'));
       return res.json(data);
     }
     if (req.method === 'POST') {
@@ -603,8 +602,15 @@ export default async function handler(req, res) {
     let q = sb.from('movimentos_financeiros').select('*').order('vencimento');
     if (params.mes_ref) q = q.eq('mes_ref', params.mes_ref);
     if (params.status)  q = q.eq('status', params.status);
-    if (params.busca)   q = q.or(`cliente_nome.ilike.%${params.busca}%,servidor.ilike.%${params.busca}%`);
-    const { data } = await q;
+    let { data } = await q;
+    data=data||[];
+    // Busca também pelo apelido e nomes terceiros do cliente (não só pelo nome gravado na cobrança)
+    if (String(params.busca||'').trim()) {
+      const b=semAcento(String(params.busca).trim()).toLowerCase();
+      const { data:cls } = await selectAll('clientes','*');
+      const ids=new Set((cls||[]).filter(c=>clienteBateBusca(c, params.busca)).map(c=>c.id));
+      data=data.filter(m=>ids.has(m.cliente_id) || semAcento(String(m.cliente_nome||'')).toLowerCase().includes(b) || semAcento(String(m.servidor||'')).toLowerCase().includes(b));
+    }
     return res.json(data);
   }
   // ─── IMPORTAR EXTRATO BANCÁRIO (OFX) ──────────────────────────

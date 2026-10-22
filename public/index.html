@@ -1648,13 +1648,27 @@ function toast(msg,tipo='ok'){
   t._t=setTimeout(()=>t.classList.remove('show'),3000);
 }
 function closeOv(id){document.getElementById(id).classList.remove('open');}
+// Janelas que abrem POR CIMA de outra sem fechá-la (ex.: histórico aberto da janela de pagamento)
+const OV_SOBREPOE=['ov-hist'];
 function openOv(id){
-  // Fecha todos os outros overlays antes de abrir
-  document.querySelectorAll('.overlay.open').forEach(o=>{ if(o.id!==id) o.classList.remove('open'); });
+  // Fecha os outros overlays antes de abrir (menos quando esta janela pode ficar por cima)
+  if(!OV_SOBREPOE.includes(id))
+    document.querySelectorAll('.overlay.open').forEach(o=>{ if(o.id!==id) o.classList.remove('open'); });
   const el=document.getElementById(id);
   el.classList.add('open');
-  // Fechar ao clicar no fundo (não no modal)
-  el.onclick=function(e){ if(e.target===el) closeOv(id); };
+  // Marca a janela como "alterada" quando a pessoa digita/escolhe algo nela
+  delete el.dataset.alterado;
+  if(!el._vigiaAlteracao){
+    const marcar=e=>{ if(e.isTrusted && e.target.matches('input,select,textarea')) el.dataset.alterado='1'; };
+    el.addEventListener('input',marcar); el.addEventListener('change',marcar);
+    el._vigiaAlteracao=true;
+  }
+  // Clique no fundo: fecha só se nada foi preenchido; com alterações, pede confirmação
+  el.onclick=function(e){
+    if(e.target!==el) return;
+    if(el.dataset.alterado && !confirm('Fechar sem salvar? O que você preencheu nesta janela será perdido.')) return;
+    closeOv(id);
+  };
 }
 
 /* ── LOGOUT POR INATIVIDADE ──

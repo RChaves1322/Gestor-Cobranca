@@ -1023,7 +1023,7 @@ export default async function handler(req, res) {
     for(const d of dps0){
       if(!d.mes_ref) continue;
       const n=mesesCobertos(d.meses_cobertos), tot=parseFloat(d.total||0);
-      for(let i=0;i<n;i++) dpsComp.push({ mes_ref:somarMeses(d.mes_ref,i), valor:tot/n, servidor:servidorDaDespesa(d) });
+      for(let i=0;i<n;i++) dpsComp.push({ mes_ref:somarMeses(d.mes_ref,i), valor:tot/n, servidor:servidorDaDespesa(d), tipo:d.tipo||'Outras' });
     }
 
     const mesesSet = new Set();
@@ -1107,6 +1107,7 @@ export default async function handler(req, res) {
         outras_por_tipo:ovs.reduce((o,r)=>{ const t=r.tipo_rec||'Outras'; o[t]=(o[t]||0)+parseFloat(r.total||0); return o; },{}),
         qtd_despesas:dps.length,
         despesas_por_tipo:dps.reduce((o,r)=>{ const t=r.tipo||'Outras'; o[t]=(o[t]||0)+parseFloat(r.total||0); return o; },{}),
+        despesas_comp_por_tipo:dpc.reduce((o,r)=>{ const t=r.tipo||'Outras'; o[t]=(o[t]||0)+r.valor; return o; },{}),
         qtd_atrasado:cobsMes.filter(c=>c.status==='vencido').length,
         clientes_atrasados:new Set(cobsMes.filter(c=>c.status==='vencido').map(c=>c.cliente_id)).size,
         qtd_em_aberto:cobsMes.filter(c=>c.status==='pendente').length

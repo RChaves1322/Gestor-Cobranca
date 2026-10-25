@@ -1044,9 +1044,13 @@ tbody tr:hover td{background:var(--bg3)}
     <button class="close-btn" onclick="closeOv('ov-cliente')"><i class="ti ti-x"></i></button>
     <div class="modal-title" id="mc-title">Novo cliente</div>
     <div class="form-grid">
-      <div class="form-group full"><label class="form-label">Nome *</label><input id="f-nome" placeholder="Nome completo"></div>
-      <div class="form-group"><label class="form-label">Apelido</label><input id="f-apelido" placeholder="Como chamar no WhatsApp">
-        <div class="form-hint">Usado no lugar do nome nas mensagens.</div></div>
+      <div class="form-group full"><label class="form-label">Nome no servidor *</label><input id="f-nome" placeholder="Usuário do cliente na plataforma (ex.: AnaPaula977)"></div>
+      <div class="form-group full"><label class="form-label">Nomes terceiros <span style="font-size:10px;color:var(--muted)">(contas que pagam por este cliente)</span></label>
+        <div class="chips" id="f-terc-chips"></div>
+        <div class="chip-add"><input id="f-terc-in" placeholder="Nome de quem paga (ex.: Maria da Silva)" onkeydown="if(event.key==='Enter'){event.preventDefault();chipAdd('f')}">
+        <button type="button" class="btn btn-sm" onclick="chipAdd('f')"><i class="ti ti-plus"></i> Adicionar</button></div></div>
+      <div class="form-group"><label class="form-label">Apelido</label><input id="f-apelido" placeholder="Como chamar o cliente (ex.: Ana)">
+        <div class="form-hint">É o nome usado nas mensagens do WhatsApp.</div></div>
       <div class="form-group"><label class="form-label">Celular (com DDD)</label><input id="f-cel" placeholder="11999990000"></div>
       <div class="form-group full"><label class="form-label">Servidor *</label>
         <select id="f-servidor"><option value="">Selecione...</option></select>
@@ -1058,10 +1062,6 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="form-group"><label class="form-label">Status</label><select id="f-status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></div>
       <div class="form-group full"><label class="form-label">TVs / aplicativos</label>
         <div id="f-devs"></div></div>
-      <div class="form-group full"><label class="form-label">Nomes terceiros <span style="font-size:10px;color:var(--muted)">(contas que pagam por este cliente)</span></label>
-        <div class="chips" id="f-terc-chips"></div>
-        <div class="chip-add"><input id="f-terc-in" placeholder="Nome de quem paga (ex.: Maria da Silva)" onkeydown="if(event.key==='Enter'){event.preventDefault();chipAdd('f')}">
-        <button type="button" class="btn btn-sm" onclick="chipAdd('f')"><i class="ti ti-plus"></i> Adicionar</button></div></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="f-obs" placeholder="Opcional"></div>
     </div>
     <div class="form-actions">
@@ -1079,7 +1079,7 @@ tbody tr:hover td{background:var(--bg3)}
     <div class="modal-title">Confirmar pagamento</div>
     <div class="pag-info">
       <div class="pag-cli">
-        <div class="pag-cli-full"><label class="form-label">Usuário na plataforma</label><input id="p-nome-in" autocomplete="off" placeholder="Ex.: AnaPaula977"></div>
+        <div class="pag-cli-full"><label class="form-label">Nome no servidor</label><input id="p-nome-in" autocomplete="off" placeholder="Ex.: AnaPaula977"></div>
         <div><label class="form-label">Apelido <span style="font-size:10px;color:var(--muted)">(nome no WhatsApp)</span></label><input id="p-apelido" autocomplete="off" placeholder="Ex.: Ana Paula"></div>
         <div><label class="form-label">Celular (com DDD)</label><input id="p-cel" autocomplete="off" placeholder="Sem telefone — ex.: 11999990000" inputmode="tel"><span id="p-cel-aviso" style="display:none"></span></div>
         <div class="pag-cli-full"><label class="form-label">Nomes terceiros <span style="font-size:10px;color:var(--muted)">(contas que pagam por este cliente)</span></label>

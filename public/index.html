@@ -310,6 +310,17 @@ tbody tr:hover td{background:var(--bg3)}
 .fin-tabs button{background:transparent;border:1px solid transparent;color:var(--muted);padding:7px 12px;border-radius:var(--radius-sm);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;font-family:inherit}
 .fin-tabs button:hover{color:var(--text);background:var(--bg2)}
 .fin-tabs button.active{background:var(--bg2);border-color:var(--border);color:var(--text);font-weight:600}
+.pt-mes{border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:10px;overflow:hidden}
+.pt-mes.pt-total{border-color:var(--accent)}
+.pt-head{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:.6rem .9rem;background:var(--bg3);font-size:13px}
+.pt-cols{display:grid;grid-template-columns:1fr 1fr}
+.pt-cols > div{padding:.6rem .9rem}
+.pt-cols > div + div{border-left:1px solid var(--border)}
+.pt-tit{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+.pt-li{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:3px 0;font-variant-numeric:tabular-nums}
+.pt-sum{border-top:1px solid var(--border);margin-top:4px;padding-top:6px;font-weight:700}
+.pt-vazio{font-size:12px;color:var(--muted);padding:3px 0}
+@media(max-width:640px){.pt-cols{grid-template-columns:1fr}.pt-cols > div + div{border-left:none;border-top:1px solid var(--border)}}
 .fin-rel-head{margin-bottom:1rem}.fin-rel-t{font-size:15px;font-weight:600}.fin-rel-s{font-size:12px;color:var(--muted);margin-top:3px}
 .fb{margin-bottom:1.25rem}
 .fb-plot{position:relative;height:190px;margin-left:58px}
@@ -813,6 +824,7 @@ tbody tr:hover td{background:var(--bg3)}
         <button data-aba="geral" onclick="finSetAba('geral')"><i class="ti ti-scale"></i> Resultado geral</button>
         <button data-aba="atrasos" onclick="finSetAba('atrasos')"><i class="ti ti-alert-triangle"></i> Atrasos</button>
         <button data-aba="servidores" onclick="finSetAba('servidores')"><i class="ti ti-server"></i> Servidores</button>
+        <button data-aba="portipo" onclick="finSetAba('portipo')"><i class="ti ti-list-numbers"></i> Por tipo</button>
         <button data-aba="detalhes" onclick="finSetAba('detalhes')"><i class="ti ti-list-details"></i> Mais detalhes</button>
       </div>
 
@@ -2391,6 +2403,31 @@ async function renderFinAba(){
           return `<tr${itens.length?` class="fin-click" onclick="const r=document.getElementById('fa-${a.mr}');r.style.display=r.style.display==='none'?'':'none'"`:''}>${td((itens.length?'<i class="ti ti-chevron-down" style="font-size:12px;margin-right:4px;color:var(--muted)"></i>':'')+fmtMesRef(a.mr))}${td(a.cli||'—',1)}${td(a.valor?fmtV(a.valor):'—',1,a.valor?'font-weight:600;color:var(--red)':'')}${td(a.aberto?fmtV(a.aberto):'—',1)}${td(a.fat?fmtPct(a.valor/a.fat):'—',1)}</tr>${lista}`;
         }),
         `<tr>${td('Total')}${td(tc,1)}${td(fmtV(tv),1,'color:var(--red)')}${td(fmtV(ta),1)}${td('',1)}</tr>`);
+  }
+  else if(finAba==='portipo'){
+    // Receitas (mensalidades + outras receitas por tipo) e despesas por tipo, mês a mês
+    const despTipo=l=>(caixa?l.m.despesas_por_tipo:(l.m.despesas_comp_por_tipo||l.m.despesas_por_tipo))||{};
+    const recTipo=l=>l.m.outras_por_tipo||{};
+    const somaObj=(arr,f)=>arr.reduce((o,l)=>{ Object.entries(f(l)).forEach(([t,v])=>o[t]=(o[t]||0)+Number(v||0)); return o; },{});
+    const linhas=(obj,cls)=>Object.entries(obj).filter(([,v])=>Math.abs(v)>0.004).sort((a,b)=>b[1]-a[1])
+      .map(([t,v])=>`<div class="pt-li"><span>${escH(t)}</span><span class="${cls}">${fmtV(v)}</span></div>`).join('');
+    const bloco=(titulo,mensal,rec,desp,destaque)=>{
+      const totRec=mensal+Object.values(rec).reduce((s,v)=>s+v,0), totDesp=Object.values(desp).reduce((s,v)=>s+v,0), saldo=totRec-totDesp;
+      return `<div class="pt-mes${destaque?' pt-total':''}">
+        <div class="pt-head"><b>${titulo}</b><span>Saldo <b style="color:var(${saldo>=0?'--green':'--red'})">${fmtV(saldo)}</b></span></div>
+        <div class="pt-cols">
+          <div><div class="pt-tit" style="color:var(--green)">Receitas</div>
+            ${mensal?`<div class="pt-li"><span>Mensalidades</span><span class="cv-green">${fmtV(mensal)}</span></div>`:''}
+            ${linhas(rec,'cv-green')||(mensal?'':'<div class="pt-vazio">Nenhuma receita</div>')}
+            <div class="pt-li pt-sum"><span>Total receitas</span><span class="cv-green">${fmtV(totRec)}</span></div></div>
+          <div><div class="pt-tit" style="color:var(--red)">Despesas</div>
+            ${linhas(desp,'cv-red')||'<div class="pt-vazio">Nenhuma despesa</div>'}
+            <div class="pt-li pt-sum"><span>Total despesas</span><span class="cv-red">${fmtV(totDesp)}</span></div></div>
+        </div></div>`;
+    };
+    html=head('Receitas e despesas por tipo', `Cada mês separado por tipo, com o total do mês. ${caixa?'Despesas pelo mês em que foram lançadas.':'Despesas que cobrem vários meses aparecem divididas entre eles.'}`)
+      +bloco(`Total do período (${L.length} ${L.length>1?'meses':'mês'})`, L.reduce((s,l)=>s+l.mensal,0), somaObj(L,recTipo), somaObj(L,despTipo), true)
+      +L.map(l=>bloco(fmtMesRef(l.mr), l.mensal, recTipo(l), despTipo(l))).join('');
   }
   else if(finAba==='servidores'){
     const meses=L.slice(-12);

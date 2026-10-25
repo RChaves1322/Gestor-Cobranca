@@ -553,6 +553,13 @@ export default async function handler(req, res) {
     }
     return res.json({ cliente, abertas, futuros });
   }
+  // Quantos clientes ativos / inativos (mostrado no topo de Clientes e Cobranças)
+  if (url === '/clientes/contagem' && req.method === 'GET') {
+    const { data, error } = await selectAll('clientes','status');
+    if (error) return err(res, error.message, 500);
+    const ativos=(data||[]).filter(c=>c.status==='ativo').length;
+    return res.json({ ativos, inativos:(data||[]).length-ativos, total:(data||[]).length });
+  }
   if (url.match(/^\/clientes\/[^/]+$/) && !url.includes('historico') && !url.includes('parcelas')) {
     const id = url.split('/')[2];
     if (req.method === 'PUT') {

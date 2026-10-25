@@ -937,7 +937,7 @@ tbody tr:hover td{background:var(--bg3)}
         <div class="card-body">
           <div class="add-servidor">
             <input type="text" id="novo-app" placeholder="Nome do app (ex: IBO Player, Clouddy...)" onkeydown="if(event.key==='Enter')addApp()">
-            <select id="novo-app-cred" style="max-width:190px"><option value="mac_key">Acesso por MAC e Key</option><option value="mac">Acesso só por MAC</option><option value="email_senha">Acesso por E-mail e Senha</option></select>
+            <select id="novo-app-cred" style="max-width:190px"><option value="mac_key">Acesso por MAC e Key</option><option value="mac">Acesso só por MAC</option><option value="email_senha">Acesso por E-mail e Senha</option><option value="usuario_senha">Acesso por Usuário e Senha</option></select>
             <button class="btn btn-primary" onclick="addApp()"><i class="ti ti-plus"></i> Adicionar</button>
           </div>
           <div id="lista-apps" class="servidor-tags"><div style="color:var(--muted);font-size:13px">Carregando...</div></div>
@@ -2683,7 +2683,7 @@ async function renderCadastros(){
       :apps.map(a=>`
         <div class="servidor-tag">
           <span>${escH(a.nome)}</span>
-          <button onclick="alternarCredApp('${a.id}','${a.credencial}')" class="badge" style="cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--muted);font-size:10px" title="Clique para trocar">${({email_senha:'E-mail/Senha',mac:'Só MAC'})[a.credencial]||'MAC/Key'}</button>
+          <button onclick="alternarCredApp('${a.id}','${a.credencial}')" class="badge" style="cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--muted);font-size:10px" title="Clique para trocar">${({email_senha:'E-mail/Senha',mac:'Só MAC',usuario_senha:'Usuário/Senha'})[a.credencial]||'MAC/Key'}</button>
           <button onclick="editarApp('${a.id}','${esc(a.nome)}')" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0 2px" title="Editar"><i class="ti ti-edit" style="font-size:13px"></i></button>
           <button onclick="delApp('${a.id}')" style="background:none;border:none;cursor:pointer;color:var(--red);padding:0 2px" title="Excluir"><i class="ti ti-x" style="font-size:13px"></i></button>
         </div>`).join('');
@@ -2739,8 +2739,8 @@ async function editarApp(id,nomeAtual){
   try{ await api('PUT',`/api/apps/${id}`,{nome:nome.trim()}); toast('App atualizado!'); renderCadastros(); }catch{ toast('Erro ao editar','err'); }
 }
 async function alternarCredApp(id,atual){
-  const nova=({mac_key:'mac',mac:'email_senha',email_senha:'mac_key'})[atual]||'mac';
-  const NOME={mac_key:'MAC e Key',mac:'só MAC',email_senha:'E-mail e Senha'};
+  const nova=({mac_key:'mac',mac:'email_senha',email_senha:'usuario_senha',usuario_senha:'mac_key'})[atual]||'mac';
+  const NOME={mac_key:'MAC e Key',mac:'só MAC',email_senha:'E-mail e Senha',usuario_senha:'Usuário e Senha'};
   if(!confirm(`Trocar o acesso deste app para ${NOME[nova]}?`)) return;
   try{ await api('PUT',`/api/apps/${id}`,{credencial:nova}); renderCadastros(); }
   catch(e){ toast(String(e.message||'').includes('MIGRACAO')?'Rode o MIGRACAO_APP_SO_MAC.sql no Supabase':'Erro ao alterar','err'); }
@@ -2919,13 +2919,14 @@ function devRender(k,desabilitar){
     return '<option value="">App...</option>'+nomes.map(n=>`<option value="${escH(n)}"${n===atual?' selected':''}>${escH(n)}</option>`).join('');
   };
   box.innerHTML=_dev[k].map((d,i)=>{
-    const t=credDoApp(d.app), email=t==='email_senha', soMac=t==='mac';
+    const t=credDoApp(d.app), soMac=t==='mac';
+    const ROT={email_senha:['E-mail','Senha'],usuario_senha:['Usuário','Senha'],mac:['MAC',''],mac_key:['MAC','Key']}[t]||['MAC','Key'];
     const dis=desabilitar?' disabled':'';
     return `<div class="dev-row${soMac?' so-mac':''}">
       <input value="${escH(d.nome)}" placeholder="TV ${i+1}" oninput="_dev.${k}[${i}].nome=this.value" title="Nome da TV (opcional)" autocomplete="off"${dis}>
       <select onchange="_dev.${k}[${i}].app=this.value;devRender('${k}')"${dis}>${opcoes(d.app)}</select>
-      <input class="dev-login" value="${escH(d.login)}" placeholder="${email?'E-mail':'MAC'}" oninput="_dev.${k}[${i}].login=this.value" autocomplete="off" spellcheck="false"${dis}>
-      ${soMac?'':`<input class="dev-senha" value="${escH(d.senha)}" placeholder="${email?'Senha':'Key'}" oninput="_dev.${k}[${i}].senha=this.value" autocomplete="off" spellcheck="false"${dis}>`}
+      <input class="dev-login" value="${escH(d.login)}" placeholder="${ROT[0]}" oninput="_dev.${k}[${i}].login=this.value" autocomplete="off" spellcheck="false"${dis}>
+      ${soMac?'':`<input class="dev-senha" value="${escH(d.senha)}" placeholder="${ROT[1]}" oninput="_dev.${k}[${i}].senha=this.value" autocomplete="off" spellcheck="false"${dis}>`}
       <button type="button" class="btn btn-sm btn-danger dev-x" onclick="_dev.${k}.splice(${i},1);devRender('${k}')" title="Remover esta TV"${dis}><i class="ti ti-x"></i></button>
     </div>`;
   }).join('')+`<button type="button" class="btn btn-sm dev-add" onclick="_dev.${k}.push({nome:'',app:'',login:'',senha:''});devRender('${k}')"${desabilitar?' disabled':''}><i class="ti ti-plus"></i> ${_dev[k].length?'Adicionar outra TV':'Adicionar TV / aplicativo'}</button>`;
@@ -2934,7 +2935,7 @@ function devRender(k,desabilitar){
 function devLista(k){
   return _dev[k].map(d=>{
     const t=credDoApp(d.app);
-    let login=String(d.login||'').trim(); if(d.app && t!=='email_senha') login=formatarMac(login);
+    let login=String(d.login||'').trim(); if(d.app && (t==='mac_key'||t==='mac')) login=formatarMac(login);
     return {nome:String(d.nome||'').trim(), app:d.app||'', login, senha:t==='mac'?'':String(d.senha||'').trim()};
   }).filter(d=>d.app||d.login);
 }

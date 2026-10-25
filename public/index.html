@@ -120,6 +120,11 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .dev-add{font-size:12px}
 .campo-erro{border-color:var(--red)!important;box-shadow:0 0 0 1px var(--red)}
 .campo-erro-msg{color:var(--red);font-size:11px;margin-top:4px}
+.nc-pag-chk{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;padding:.6rem .75rem;border:1px dashed var(--border);border-radius:var(--radius-sm)}
+.nc-pag-chk input{width:17px;height:17px;accent-color:var(--green)}
+.nc-pag{margin-top:8px;padding:.75rem;border:1px solid var(--green);border-radius:var(--radius-sm);background:var(--green-bg)}
+.topbar-sub{font-size:12px;font-weight:500;color:var(--muted);margin-left:8px;white-space:nowrap}
+.topbar-sub b{color:var(--green)}
 .cli-link{cursor:pointer}.cli-link:hover{color:var(--accent);text-decoration:underline}
 
 /* ── INPUTS ── */
@@ -1075,6 +1080,18 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="form-group full"><label class="form-label">TVs / aplicativos</label>
         <div id="f-devs"></div></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="f-obs" placeholder="Opcional"></div>
+      <div class="form-group full" id="f-pag-grp" style="display:none">
+        <label class="nc-pag-chk"><input type="checkbox" id="f-pag-on" onchange="ncPagToggle()"><span><b>Já lançar pagamento</b><br><span style="color:var(--muted);font-size:12px">registra os meses pagos junto com o cadastro</span></span></label>
+        <div id="f-pag-box" class="nc-pag" style="display:none">
+          <div class="form-grid">
+            <div class="form-group"><label class="form-label">Primeiro mês pago</label><input type="month" id="f-pag-mes"></div>
+            <div class="form-group"><label class="form-label">Quantos meses</label><input type="number" id="f-pag-qtd" min="1" max="12" value="1" oninput="ncPagResumo()"></div>
+            <div class="form-group"><label class="form-label">Data do pagamento</label><input type="date" id="f-pag-data"></div>
+            <div class="form-group"><label class="form-label">Valor por mês (R$)</label><input type="number" step="0.01" id="f-pag-valor" placeholder="Valor da mensalidade" oninput="ncPagResumo()"></div>
+          </div>
+          <div class="form-hint" id="f-pag-resumo"></div>
+        </div>
+      </div>
     </div>
     <div class="form-actions">
       <button class="btn" onclick="closeOv('ov-cliente')">Cancelar</button>
@@ -1844,6 +1861,7 @@ function showPage(name){
   if(name==='financeiro') aplicarEstadoValores();
   if(fn[name])fn[name]();
   if(name==='cobrancas') atualizarBadgeLembretes();
+  if(name==='clientes'||name==='cobrancas') atualizarContagemAtivos();
 }
 
 /* ── DASHBOARD ── */
@@ -2908,6 +2926,7 @@ async function openClienteModal(id){
       const c=todos.find(x=>x.id===id);
       if(!c){ toast('Cliente não encontrado','err'); return; }
       f('mc-title').textContent='Editar cliente';
+      f('f-pag-grp').style.display='none'; f('f-pag-on').checked=false;
       f('f-nome').value=c.nome;
       f('f-cel').value=c.celular||'';
       f('f-apelido').value=c.apelido||'';
@@ -2923,6 +2942,8 @@ async function openClienteModal(id){
     }catch(e){ toast('Erro ao carregar cliente','err'); return; }
   } else {
     f('mc-title').textContent='Novo cliente';
+    f('f-pag-grp').style.display=''; f('f-pag-on').checked=false; f('f-pag-box').style.display='none';
+    f('f-pag-mes').value=finMesAtual(); f('f-pag-qtd').value='1'; f('f-pag-data').value=hoje(); f('f-pag-valor').value='';
     f('f-nome').value='';
     f('f-cel').value='';
     f('f-apelido').value='';
@@ -3015,16 +3036,70 @@ async function salvarCliente(){
     aparelhos: devLista('f')
   };
 
+  // Pagamento junto com o cadastro (só cliente novo)
+  const pag=!editId && document.getElementById('f-pag-on').checked ? ncPagDados(body.valor) : null;
+  if(pag && pag.erro){ toast(pag.erro,'err'); return; }
+
+  let novo=null;
   try{
     if(editId) await api('PUT',`/api/clientes/${editId}`,body);
-    else       await api('POST','/api/clientes',body);
-    closeOv('ov-cliente');
-    toast(editId?'Cliente atualizado!':'Cliente cadastrado!');
-    renderClientes();
+    else       novo=await api('POST','/api/clientes',body);
   }catch(e){
     console.error('Erro salvarCliente:',e);
-    toast('Erro ao salvar cliente','err');
+    toast('Erro ao salvar cliente','err'); return;
   }
+  let pagos=0;
+  if(pag && novo && novo.id){
+    try{
+      for(const mr of pag.meses){
+        await api('POST','/api/cobrancas/pagar-mes',{cliente_id:novo.id,mes_ref:mr,pago_em:pag.data,valor_pago:pag.valor,obs_pagamento:'Pago no cadastro'});
+        pagos++;
+      }
+    }catch(e){
+      closeOv('ov-cliente'); renderClientes(); atualizarContagemAtivos();
+      toast(`Cliente cadastrado, mas só ${pagos} de ${pag.meses.length} mês(es) foram lançados. Confira em Cobranças.`,'err'); return;
+    }
+  }
+  closeOv('ov-cliente');
+  toast(editId?'Cliente atualizado!':pagos?`Cliente cadastrado e ${pagos} mês(es) pago(s)!`:'Cliente cadastrado!');
+  renderClientes(); atualizarContagemAtivos();
+}
+
+/* Pagamento no cadastro do cliente novo */
+function ncPagToggle(){
+  const on=document.getElementById('f-pag-on').checked;
+  document.getElementById('f-pag-box').style.display=on?'':'none';
+  const v=document.getElementById('f-pag-valor');
+  if(on && !v.value) v.value=document.getElementById('f-valor').value||'';
+  ncPagResumo();
+}
+function ncPagDados(valorCliente){
+  const mes=document.getElementById('f-pag-mes').value, qtd=parseInt(document.getElementById('f-pag-qtd').value);
+  const data=document.getElementById('f-pag-data').value;
+  const vt=document.getElementById('f-pag-valor').value.trim();
+  const valor=vt===''?Number(valorCliente):parseFloat(vt.replace(',','.'));
+  if(!/^\d{4}-\d{2}$/.test(mes)) return {erro:'Informe o primeiro mês pago'};
+  if(!(qtd>=1&&qtd<=12)) return {erro:'Quantidade de meses deve ser de 1 a 12'};
+  if(!data) return {erro:'Informe a data do pagamento'};
+  if(!(valor>=0)) return {erro:'Valor por mês inválido'};
+  const meses=[]; for(let i=0;i<qtd;i++) meses.push(finSomarMeses(mes,i));
+  return {meses,data,valor};
+}
+function ncPagResumo(){
+  const el=document.getElementById('f-pag-resumo'); if(!el) return;
+  const d=ncPagDados(document.getElementById('f-valor').value);
+  el.textContent=d.erro?'':`Serão lançados como pagos: ${d.meses.map(fmtMesRef).join(', ')} — total ${fmtV(d.valor*d.meses.length)}`;
+}
+
+/* Contagem de clientes ativos no topo de Clientes e Cobranças */
+async function atualizarContagemAtivos(){
+  const t=document.getElementById('topbar-title'); if(!t) return;
+  if(!['clientes','cobrancas'].includes(currentPage)) return;
+  try{
+    const c=await api('GET','/api/clientes/contagem');
+    if(!['clientes','cobrancas'].includes(currentPage)) return;
+    t.innerHTML=`${escH(TITLES[currentPage])}<span class="topbar-sub"><b>${c.ativos}</b> cliente${c.ativos===1?'':'s'} ativo${c.ativos===1?'':'s'}${c.inativos?` · ${c.inativos} inativo${c.inativos===1?'':'s'}`:''}</span>`;
+  }catch{}
 }
 
 async function delCliente(id){
@@ -3582,7 +3657,7 @@ async function toggleSt(id,status){
   if(status==='ativo' && !confirm('Desativar este cliente? Ele deixa de receber cobranças novas.')) return;
   try{
     await api('PUT',`/api/clientes/${id}`,{status:status==='ativo'?'inativo':'ativo'});
-    toast(status==='ativo'?'Cliente desativado.':'Cliente ativado.');renderClientes();
+    toast(status==='ativo'?'Cliente desativado.':'Cliente ativado.');renderClientes();atualizarContagemAtivos();
   }catch{toast('Erro','err');}
 }
 

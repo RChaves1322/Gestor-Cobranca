@@ -882,6 +882,35 @@ export default async function handler(req, res) {
     }
     return res.json({ ok:true, baixadas, total:valor_total });
   }
+  // Paga um mês que ainda não tem cobrança (cliente adiantou): cria a mensalidade já paga.
+  // Se o mês já tiver cobrança em aberto, dá baixa nela; se já estiver pago, recusa.
+  if (url === '/cobrancas/pagar-mes' && req.method === 'POST') {
+    const { cliente_id, mes_ref, pago_em, valor_pago, obs_pagamento } = body;
+    if (!cliente_id || !/^\d{4}-\d{2}$/.test(String(mes_ref||'')) || !pago_em) return err(res,'Dados incompletos');
+    const { data:cliente } = await sb.from('clientes').select('*').eq('id',cliente_id).single();
+    if (!cliente) return err(res,'Cliente não encontrado',404);
+    const vp=parseFloat(valor_pago); if (!(vp>=0)) return err(res,'Valor inválido');
+    const { data:doMes } = await sb.from('movimentos_financeiros').select('*').eq('cliente_id',cliente_id).eq('mes_ref',mes_ref).neq('status','cancelado');
+    if ((doMes||[]).some(m=>m.status==='pago')) return err(res,`${mes_ref} já está pago para este cliente`);
+    const aberto=(doMes||[]).find(m=>m.status==='pendente'||m.status==='vencido');
+    if (aberto) {
+      const { error } = await sb.from('movimentos_financeiros').update({ status:'pago', pago_em, valor_pago:vp,
+        desconto:Math.max(0,parseFloat(aberto.valor||0)-vp), obs_pagamento:obs_pagamento||'' }).eq('id',aberto.id);
+      if (error) return err(res, erroSupabase(error,'registrar o pagamento'), 500);
+      return res.json({ ok:true, id:aberto.id });
+    }
+    const [ano,mes]=mes_ref.split('-').map(Number);
+    const dia=Math.min(parseInt(cliente.dia)||1, diasNoMes(mes,ano));
+    const { data, error } = await sb.from('movimentos_financeiros').insert({
+      id:uid(), cliente_id, cliente_nome:cliente.nome, servidor:cliente.servidor||'',
+      valor:parseFloat(cliente.valor||0), vencimento:`${ano}-${pad(mes)}-${pad(dia)}`, mes_ref,
+      status:'pago', pago_em, valor_pago:vp, desconto:Math.max(0,parseFloat(cliente.valor||0)-vp),
+      obs_pagamento:obs_pagamento||'', tipo_movimento:'mensalidade', origem:'pagamento_manual',
+      criado:new Date().toISOString()
+    }).select().single();
+    if (error) return err(res, erroSupabase(error,'registrar o pagamento'), 500);
+    return res.json(data);
+  }
   if (url.match(/^\/cobrancas\/[^/]+\/pagar$/) && req.method === 'PUT') {
     const id = url.split('/')[2];
     const { pago_em, valor_pago, obs_pagamento, servidor_novo } = body;

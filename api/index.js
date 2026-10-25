@@ -343,8 +343,8 @@ export default async function handler(req, res) {
   if (authError || !authData?.user) return err(res, 'Sessão inválida ou expirada', 401);
   // ─── SERVIDORES ───────────────────────────────────────────────
   // ─── APPS (IBO Player, Clouddy...) ────────────────────────────
-  // credencial: 'mac_key' (MAC + Key), 'mac' (só MAC) ou 'email_senha' (E-mail + Senha)
-  const tipoCred=v=>['email_senha','mac'].includes(v)?v:'mac_key';
+  // credencial: 'mac_key' (MAC + Key), 'mac' (só MAC), 'email_senha' (E-mail + Senha) ou 'usuario_senha' (Usuário + Senha)
+  const tipoCred=v=>['email_senha','mac','usuario_senha'].includes(v)?v:'mac_key';
   if (url === '/apps') {
     if (req.method === 'GET') {
       const { data, error } = await sb.from('apps').select('*').order('nome');

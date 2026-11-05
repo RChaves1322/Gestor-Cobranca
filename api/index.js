@@ -132,6 +132,14 @@ function clienteBateBusca(c, busca){
     ...(Array.isArray(c.aparelhos)?c.aparelhos.flatMap(a=>[a?.nome,a?.app,a?.login]):[])];
   return campos.some(v=>v && semAcento(String(v)).toLowerCase().includes(b));
 }
+// Momento em que o pagamento foi LANÇADO no sistema (coluna opcional lancado_em).
+// Se a migração ainda não foi rodada, simplesmente não grava.
+let _temLancado=null;
+async function comLancado(obj){
+  if (_temLancado===null) { const { error } = await sb.from('movimentos_financeiros').select('lancado_em').limit(1); _temLancado=!error; }
+  if (_temLancado) obj.lancado_em=new Date().toISOString();
+  return obj;
+}
 function semAcento(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 const PALAVRAS_VAZIAS=new Set(['DE','DA','DO','DAS','DOS','E','LTDA','ME','SA','S','A','EPP','EIRELI']);
 function tokensNome(n){
@@ -179,9 +187,9 @@ async function pagarClienteExtrato(clienteId, mesesSel, valor, data, it, dividid
       const ex=(exist||[]).find(m=>m.mes_ref===mr && m.status!=='pago');
       const obs=`Extrato ${it.banco||'banco'} – ${it.nome||''}${dividido?' (PIX dividido)':''}`.trim();
       if (ex) {
-        const { error } = await sb.from('movimentos_financeiros').update({
+        const { error } = await sb.from('movimentos_financeiros').update(await comLancado({
           status:'pago', pago_em:data, valor_pago:vp, desconto:Math.max(0,Number(ex.valor||0)-vp),
-          obs_pagamento:obs, origem:ex.origem||'extrato' }).eq('id',ex.id);
+          obs_pagamento:obs, origem:ex.origem||'extrato' })).eq('id',ex.id);
         if (error) throw error; ids.push(ex.id);
       } else {
         const jaPago=(exist||[]).some(m=>m.mes_ref===mr && m.status==='pago');
@@ -189,11 +197,11 @@ async function pagarClienteExtrato(clienteId, mesesSel, valor, data, it, dividid
         const dia=Math.min(parseInt(c.dia)||1, diasNoMes(mm,a));
         const idFixo=`mov_${c.id}_${a}${pad(mm)}`;
         const id = jaPago ? uid()+'ext' : idFixo;
-        const { error } = await sb.from('movimentos_financeiros').upsert({
+        const { error } = await sb.from('movimentos_financeiros').upsert(await comLancado({
           id, cliente_id:c.id, cliente_nome:c.nome, servidor:c.servidor||'', valor:Math.max(Number(c.valor||0),vp),
           vencimento:`${mr}-${pad(dia)}`, mes_ref:mr, status:'pago', pago_em:data, valor_pago:vp,
           desconto:Math.max(0,Number(c.valor||0)-vp), obs_pagamento:obs, tipo_movimento:'mensalidade',
-          origem:'extrato', criado:new Date().toISOString() },{ onConflict:'id' });
+          origem:'extrato', criado:new Date().toISOString() }),{ onConflict:'id' });
         if (error) throw error; ids.push(id);
       }
     }
@@ -553,6 +561,41 @@ export default async function handler(req, res) {
     }
     return res.json({ cliente, abertas, futuros });
   }
+  // Últimos lançamentos: mensalidades pagas, receitas e despesas, do mais recente
+  // lançado para o mais antigo — para saber onde parou no extrato.
+  if (url === '/lancamentos/recentes' && req.method === 'GET') {
+    const lim=Math.min(300, Math.max(10, parseInt(params.limite)||80));
+    await comLancado({});
+    const colsMov='id,cliente_id,cliente_nome,servidor,mes_ref,pago_em,valor_pago,origem,obs_pagamento'+(_temLancado?',lancado_em':'');
+    const reqs=[
+      sb.from('movimentos_financeiros').select(colsMov).eq('status','pago').not('pago_em','is',null).order('pago_em',{ascending:false}).limit(lim),
+      _temLancado ? sb.from('movimentos_financeiros').select(colsMov).eq('status','pago').not('lancado_em','is',null).order('lancado_em',{ascending:false}).limit(lim) : Promise.resolve({data:[]}),
+      sb.from('outras_vendas').select('id,data,tipo_rec,cliente,produto,total,criado').order('criado',{ascending:false}).limit(lim),
+      sb.from('despesas').select('id,data,tipo,responsavel,descricao,total,criado').order('criado',{ascending:false}).limit(lim),
+      tabelaOpcional('extrato_lancamentos','data,criado', q=>q.order('data',{ascending:false}).limit(1))
+    ];
+    const [a,b,ov,dp,ex]=await Promise.all(reqs);
+    const movs=new Map(); [...(a.data||[]),...(b.data||[])].forEach(m=>movs.set(m.id,m));
+    const ORIG={extrato:'Extrato', pagamento_manual:'Manual', geracao_mensal:'Manual', importacao_planilha:'Planilha', importacao_historico:'Planilha'};
+    const itens=[
+      ...[...movs.values()].filter(m=>!String(m.origem||'').startsWith('importacao')).map(m=>({ tipo:'mensalidade', id:m.id, cliente_id:m.cliente_id,
+        titulo:m.cliente_nome, detalhe:`Mensalidade ${m.mes_ref||''}${m.servidor?' · '+m.servidor:''}`, data:m.pago_em,
+        lancado_em:m.lancado_em||null, valor:Number(m.valor_pago||0), origem:ORIG[m.origem]||'Manual' })),
+      ...(ov.data||[]).map(r=>({ tipo:'receita', id:r.id, titulo:r.cliente, detalhe:`${r.tipo_rec}${r.produto?' · '+r.produto:''}`,
+        data:r.data, lancado_em:r.criado, valor:Number(r.total||0), origem:'Receita' })),
+      ...(dp.data||[]).map(r=>({ tipo:'despesa', id:r.id, titulo:r.descricao||r.tipo, detalhe:`${r.tipo}${r.responsavel?' · '+r.responsavel:''}`,
+        data:r.data, lancado_em:r.criado, valor:-Number(r.total||0), origem:'Despesa' }))
+    ];
+    const chave=i=>i.lancado_em||(String(i.data||'')+'T00:00:00');
+    itens.sort((x,y)=>chave(y).localeCompare(chave(x)));
+    const datasPag=[...movs.values()].map(m=>m.pago_em).filter(Boolean).sort();
+    return res.json({
+      itens:itens.slice(0,lim),
+      ultimo_pagamento:datasPag.at(-1)||null,
+      ultimo_extrato:(ex.data||[])[0]?.data||null,
+      tem_lancado_em:!!_temLancado
+    });
+  }
   // Quantos clientes ativos / inativos (mostrado no topo de Clientes e Cobranças)
   if (url === '/clientes/contagem' && req.method === 'GET') {
     const { data, error } = await selectAll('clientes','status');
@@ -864,7 +907,7 @@ export default async function handler(req, res) {
       const { data:exist } = await sb.from('movimentos_financeiros').select('*').in('id',ids_existentes).order('vencimento');
       for (const cb of exist) {
         const vp = idx===totalIds-1 ? parseFloat((valor_total-base*(totalIds-1)).toFixed(2)) : base;
-        await sb.from('movimentos_financeiros').update({ status:'pago', pago_em, valor_pago:vp, desconto:Math.max(0,parseFloat(cb.valor||0)-vp), obs_pagamento:obs||'', origem:cb.origem||'pagamento_manual' }).eq('id',cb.id);
+        await sb.from('movimentos_financeiros').update(await comLancado({ status:'pago', pago_em, valor_pago:vp, desconto:Math.max(0,parseFloat(cb.valor||0)-vp), obs_pagamento:obs||'', origem:cb.origem||'pagamento_manual' })).eq('id',cb.id);
         baixadas.push({ ...cb, valor_pago:vp, pago_em, status:'pago' });
         idx++;
       }
@@ -876,14 +919,14 @@ export default async function handler(req, res) {
       const venc=`${ano}-${pad(mes)}-${pad(dia)}`;
       const vp = idx===totalIds-1 ? parseFloat((valor_total-base*(totalIds-1)).toFixed(2)) : base;
       const novoId = uid();
-      const { data:nova } = await sb.from('movimentos_financeiros').upsert({
+      const { data:nova } = await sb.from('movimentos_financeiros').upsert(await comLancado({
         id:novoId, cliente_id, cliente_nome:cliente.nome, servidor:cliente.servidor,
         valor:cliente.valor, vencimento:venc, mes_ref:mr,
         status:'pago', pago_em, valor_pago:vp,
         desconto:Math.max(0,parseFloat(cliente.valor||0)-vp),
         obs_pagamento:obs||'', tipo_movimento:'mensalidade', origem:'pagamento_manual',
         criado:new Date().toISOString()
-      }).select().single();
+      })).select().single();
       baixadas.push(nova);
       idx++;
     }
@@ -901,20 +944,20 @@ export default async function handler(req, res) {
     if ((doMes||[]).some(m=>m.status==='pago')) return err(res,`${mes_ref} já está pago para este cliente`);
     const aberto=(doMes||[]).find(m=>m.status==='pendente'||m.status==='vencido');
     if (aberto) {
-      const { error } = await sb.from('movimentos_financeiros').update({ status:'pago', pago_em, valor_pago:vp,
-        desconto:Math.max(0,parseFloat(aberto.valor||0)-vp), obs_pagamento:obs_pagamento||'' }).eq('id',aberto.id);
+      const { error } = await sb.from('movimentos_financeiros').update(await comLancado({ status:'pago', pago_em, valor_pago:vp,
+        desconto:Math.max(0,parseFloat(aberto.valor||0)-vp), obs_pagamento:obs_pagamento||'' })).eq('id',aberto.id);
       if (error) return err(res, erroSupabase(error,'registrar o pagamento'), 500);
       return res.json({ ok:true, id:aberto.id });
     }
     const [ano,mes]=mes_ref.split('-').map(Number);
     const dia=Math.min(parseInt(cliente.dia)||1, diasNoMes(mes,ano));
-    const { data, error } = await sb.from('movimentos_financeiros').insert({
+    const { data, error } = await sb.from('movimentos_financeiros').insert(await comLancado({
       id:uid(), cliente_id, cliente_nome:cliente.nome, servidor:cliente.servidor||'',
       valor:parseFloat(cliente.valor||0), vencimento:`${ano}-${pad(mes)}-${pad(dia)}`, mes_ref,
       status:'pago', pago_em, valor_pago:vp, desconto:Math.max(0,parseFloat(cliente.valor||0)-vp),
       obs_pagamento:obs_pagamento||'', tipo_movimento:'mensalidade', origem:'pagamento_manual',
       criado:new Date().toISOString()
-    }).select().single();
+    })).select().single();
     if (error) return err(res, erroSupabase(error,'registrar o pagamento'), 500);
     return res.json(data);
   }
@@ -926,11 +969,11 @@ export default async function handler(req, res) {
     const valorPagoNum=parseFloat(valor_pago);
     if (servidor_novo && servidor_novo !== cb.servidor)
       await sb.from('clientes').update({ servidor:servidor_novo }).eq('id',cb.cliente_id);
-    const { error:ePag } = await sb.from('movimentos_financeiros').update({
+    const { error:ePag } = await sb.from('movimentos_financeiros').update(await comLancado({
       status:'pago', pago_em, valor_pago:valorPagoNum,
       desconto:Math.max(0,parseFloat(cb.valor||0)-valorPagoNum),
       obs_pagamento:obs_pagamento||'', origem:cb.origem||'pagamento_manual'
-    }).eq('id',id);
+    })).eq('id',id);
     if(ePag) return err(res, `Erro ao registrar pagamento: ${ePag.message}`, 500);
     const { data } = await sb.from('movimentos_financeiros').select('*').eq('id',id).single();
     return res.json(data);

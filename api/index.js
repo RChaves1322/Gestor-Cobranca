@@ -254,7 +254,7 @@ async function gravarCliente(op, row, id){
     const { data, error } = await q.select().single();
     const m = error && String(error.message||'').match(/'([a-z_]+)' column|column "?([a-z_]+)"? (?:of relation|does not exist)/);
     const col = m && (m[1]||m[2]);
-    if (col && col in r && ['dia_cobranca','app','app_login','app_senha','apelido','nomes_terceiros','arquivado','arquivado_em','aparelhos'].includes(col)) { delete r[col]; continue; }
+    if (col && col in r && ['dia_cobranca','app','app_login','app_senha','apelido','nomes_terceiros','arquivado','arquivado_em','aparelhos','grupo'].includes(col)) { delete r[col]; continue; }
     return { data, error };
   }
   return { data:null, error:{ message:'falha ao gravar cliente' } };
@@ -599,6 +599,47 @@ export default async function handler(req, res) {
       tem_lancado_em:!!_temLancado
     });
   }
+  // ─── CONTAS VINCULADAS (mesmo cliente pagando várias contas) ───
+  // GET  /clientes/:id/vinculados  → contas do mesmo grupo (inclui a própria)
+  // POST /clientes/vincular {ids}   → junta as contas num grupo e padroniza apelido/celular/terceiros
+  // POST /clientes/:id/desvincular  → tira a conta do grupo
+  if (url.match(/^\/clientes\/[^/]+\/vinculados$/) && req.method==='GET') {
+    const id=url.split('/')[2];
+    const { data:c, error } = await sb.from('clientes').select('*').eq('id',id).single();
+    if (error || !c) return res.json([]);
+    if (!c.grupo) return res.json([c]);
+    const { data } = await sb.from('clientes').select('*').eq('grupo',c.grupo).order('nome');
+    return res.json(data||[c]);
+  }
+  if (url === '/clientes/vincular' && req.method==='POST') {
+    const ids=[...new Set((body.ids||[]).filter(Boolean))];
+    if (ids.length<2) return err(res,'Escolha ao menos duas contas');
+    const { data:cls, error } = await sb.from('clientes').select('*').in('id',ids);
+    if (error) return err(res, /grupo/.test(error.message)?'Rode o MIGRACAO_CONTAS_VINCULADAS.sql no Supabase.':error.message, 500);
+    if ((cls||[]).length!==ids.length) return err(res,'Conta não encontrada',404);
+    if (!('grupo' in cls[0])) return err(res,'Rode o MIGRACAO_CONTAS_VINCULADAS.sql no Supabase.');
+    // Usa o grupo que já existir; senão cria um novo
+    const gruposExist=[...new Set(cls.map(c=>c.grupo).filter(Boolean))];
+    const grupo=gruposExist[0]||('g_'+uid());
+    let todos=cls;
+    if (gruposExist.length) { const { data:g } = await sb.from('clientes').select('*').in('grupo',gruposExist); todos=[...new Map([...cls,...(g||[])].map(c=>[c.id,c])).values()]; }
+    const principal=todos.find(c=>c.id===ids[0])||todos[0];
+    const apelido=principal.apelido || todos.map(c=>c.apelido).find(Boolean) || null;
+    const celular=principal.celular || todos.map(c=>c.celular).find(Boolean) || '';
+    const terceiros=listaNomes(todos.flatMap(c=>Array.isArray(c.nomes_terceiros)?c.nomes_terceiros:[]));
+    const { error:eUp } = await sb.from('clientes').update({ grupo, apelido, celular, nomes_terceiros:terceiros }).in('id',todos.map(c=>c.id));
+    if (eUp) return err(res, eUp.message, 500);
+    if (gruposExist.length>1) await sb.from('clientes').update({ grupo }).in('grupo',gruposExist.slice(1));
+    return res.json({ ok:true, grupo, contas:todos.length });
+  }
+  if (url.match(/^\/clientes\/[^/]+\/desvincular$/) && req.method==='POST') {
+    const id=url.split('/')[2];
+    const { data:c } = await sb.from('clientes').select('grupo').eq('id',id).single();
+    await sb.from('clientes').update({ grupo:null }).eq('id',id);
+    // Se sobrou só uma conta no grupo, desfaz o grupo
+    if (c?.grupo) { const { data:rest } = await sb.from('clientes').select('id').eq('grupo',c.grupo); if ((rest||[]).length<2) await sb.from('clientes').update({ grupo:null }).eq('grupo',c.grupo); }
+    return res.json({ ok:true });
+  }
   // Quantos clientes ativos / inativos (mostrado no topo de Clientes e Cobranças)
   if (url === '/clientes/contagem' && req.method === 'GET') {
     const { data, error } = await selectAll('clientes','status');
@@ -630,6 +671,12 @@ export default async function handler(req, res) {
       const { data:antes } = upd.nome ? await sb.from('clientes').select('nome').eq('id',id).single() : { data:null };
       const { data, error } = await gravarCliente('update', upd, id);
       if (error) return err(res, `Erro ao atualizar cliente: ${error.message}`, 500);
+      // Contas vinculadas (mesmo pagador): apelido, celular e nomes terceiros ficam iguais em todas
+      if (data && data.grupo) {
+        const comp={};
+        ['apelido','celular','nomes_terceiros'].forEach(k=>{ if (k in upd) comp[k]=upd[k]; });
+        if (Object.keys(comp).length) await sb.from('clientes').update(comp).eq('grupo',data.grupo).neq('id',id);
+      }
       // Nome trocado: atualiza as cobranças e guarda o nome antigo para as
       // importações de planilha continuarem achando este cliente.
       if (antes && upd.nome && antes.nome !== upd.nome) {

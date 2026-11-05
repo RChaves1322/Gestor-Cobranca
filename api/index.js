@@ -564,7 +564,7 @@ export default async function handler(req, res) {
   // Últimos lançamentos: mensalidades pagas, receitas e despesas, do mais recente
   // lançado para o mais antigo — para saber onde parou no extrato.
   if (url === '/lancamentos/recentes' && req.method === 'GET') {
-    const lim=Math.min(300, Math.max(10, parseInt(params.limite)||80));
+    const lim=Math.min(300, Math.max(5, parseInt(params.limite)||20));
     await comLancado({});
     const colsMov='id,cliente_id,cliente_nome,servidor,mes_ref,pago_em,valor_pago,origem,obs_pagamento'+(_temLancado?',lancado_em':'');
     const reqs=[

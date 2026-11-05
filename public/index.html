@@ -118,6 +118,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .dev-row .dev-senha{grid-row:2;grid-column:2/4}
 .dev-row.so-mac .dev-login{grid-column:1/-1}
 .dev-add{font-size:12px}
+.tipo-novo{display:flex;flex-direction:column;gap:6px;margin-top:6px;padding:8px;border:1px dashed var(--accent);border-radius:var(--radius-sm)}
+.dev-novo{grid-column:1/-1;display:grid;grid-template-columns:1fr auto auto;gap:6px;padding:8px;margin-top:2px;border:1px dashed var(--accent);border-radius:var(--radius-sm)}
+.dev-novo input{grid-column:1/-1;min-width:0}
+.dev-novo select{min-width:0}
 .campo-erro{border-color:var(--red)!important;box-shadow:0 0 0 1px var(--red)}
 .campo-erro-msg{color:var(--red);font-size:11px;margin-top:4px}
 .nc-pag-chk{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;padding:.6rem .75rem;border:1px dashed var(--border);border-radius:var(--radius-sm)}
@@ -308,6 +312,12 @@ tbody tr:hover td{background:var(--bg3)}
 .ext-det{display:flex;flex-direction:column;gap:4px;min-width:0}
 .ext-det .linha{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
 .ext-sub{font-size:11px;color:var(--muted)}
+.ind-item{border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;overflow:hidden}
+.ind-item summary{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;list-style:none}
+.ind-item summary::-webkit-details-marker{display:none}
+.ind-item[open] summary{border-bottom:1px solid var(--border)}
+.ind-item table{width:100%}
+.ind-qtd{background:var(--accent);color:#fff;border-radius:999px;min-width:28px;text-align:center;font-weight:700;font-size:13px;padding:2px 8px}
 .ext-tab td:nth-child(4) select{min-width:125px}
 .ext-hist{font-size:11px;color:var(--muted);background:var(--bg3);border-radius:var(--radius-sm);padding:4px 7px;line-height:1.45}
 @media(max-width:800px){.ext-tab colgroup col:nth-child(1){width:38%}.ext-tab colgroup col:nth-child(2){width:110px}}
@@ -677,6 +687,7 @@ tbody tr:hover td{background:var(--bg3)}
           <option value="ativo">Ativos</option>
           <option value="inativo">Inativos</option>
         </select>
+        <button class="btn btn-sm" onclick="abrirIndicacoes()" title="Relatório de indicações"><i class="ti ti-users-group"></i> Indicações</button>
       </div>
       <div class="card"><div class="table-wrap" id="clientes-table"><div class="loading">Carregando...</div></div></div>
     </div>
@@ -1097,6 +1108,11 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="form-group"><label class="form-label">Status</label><select id="f-status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></div>
       <div class="form-group full"><label class="form-label">TVs / aplicativos</label>
         <div id="f-devs"></div></div>
+      <div class="form-group full"><label class="form-label">Indicado por <span style="font-size:10px;color:var(--muted)">(cliente já cadastrado que fez a indicação)</span></label>
+        <div class="chip-add"><input id="f-indic" list="f-indic-dl" placeholder="Opcional — digite para buscar o cliente..." autocomplete="off" oninput="indicEscolha()">
+          <datalist id="f-indic-dl"></datalist>
+          <button type="button" class="btn btn-sm" onclick="indicLimpar()" title="Remover indicação"><i class="ti ti-x"></i></button></div>
+        <div class="form-hint" id="f-indic-hint"></div></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="f-obs" placeholder="Opcional"></div>
       <div class="form-group full" id="f-vinc-grp" style="display:none"><label class="form-label">Contas vinculadas <span style="font-size:10px;color:var(--muted)">(mesmo cliente — paga junto; apelido, celular e terceiros ficam iguais)</span></label>
         <div class="chips" id="f-vinc-chips"></div>
@@ -1107,9 +1123,9 @@ tbody tr:hover td{background:var(--bg3)}
         <label class="nc-pag-chk"><input type="checkbox" id="f-pag-on" onchange="ncPagToggle()"><span><b>Já lançar pagamento</b><br><span style="color:var(--muted);font-size:12px">registra os meses pagos junto com o cadastro</span></span></label>
         <div id="f-pag-box" class="nc-pag" style="display:none">
           <div class="form-grid">
-            <div class="form-group"><label class="form-label">Primeiro mês pago</label><input type="month" id="f-pag-mes"></div>
+            <div class="form-group"><label class="form-label">Primeiro mês pago</label><input type="month" id="f-pag-mes" onchange="ncPagResumo()"></div>
             <div class="form-group"><label class="form-label">Quantos meses</label><input type="number" id="f-pag-qtd" min="1" max="12" value="1" oninput="ncPagResumo()"></div>
-            <div class="form-group"><label class="form-label">Data do pagamento</label><input type="date" id="f-pag-data"></div>
+            <div class="form-group"><label class="form-label">Data do pagamento</label><input type="date" id="f-pag-data" onchange="ncPagResumo()"></div>
             <div class="form-group"><label class="form-label">Valor por mês (R$)</label><input type="number" step="0.01" id="f-pag-valor" placeholder="Valor da mensalidade" oninput="ncPagResumo()"></div>
           </div>
           <div class="form-hint" id="f-pag-resumo"></div>
@@ -1175,6 +1191,17 @@ tbody tr:hover td{background:var(--bg3)}
       <button data-f="despesa" onclick="ulFiltro('despesa')">Despesas</button>
     </div>
     <div id="ul-lista"><div class="loading">Carregando...</div></div>
+  </div>
+</div>
+
+<!-- Modal Relatório de indicações -->
+<div class="overlay" id="ov-indic">
+  <div class="modal wide">
+    <button class="close-btn" onclick="closeOv('ov-indic')"><i class="ti ti-x"></i></button>
+    <div class="modal-title"><i class="ti ti-users-group" style="margin-right:6px"></i>Relatório de indicações</div>
+    <div class="hist-stats" id="ind-resumo"></div>
+    <input type="text" id="ind-busca" placeholder="Buscar quem indicou ou quem foi indicado..." oninput="renderIndicacoes()" style="margin-bottom:10px">
+    <div id="ind-lista"><div class="loading">Carregando...</div></div>
   </div>
 </div>
 
@@ -1460,9 +1487,14 @@ tbody tr:hover td{background:var(--bg3)}
     <div class="form-grid">
       <div class="form-group"><label class="form-label">Data *</label><input type="date" id="ov-data"></div>
       <div class="form-group"><label class="form-label">Tipo de receita *</label>
-        <select id="ov-tipo-rec">
+        <select id="ov-tipo-rec" onchange="tipoRapidoEscolha('ov',this.value)">
           <option value="">Selecione...</option>
         </select>
+        <div class="tipo-novo" id="ov-tipo-novo" style="display:none">
+          <input id="ov-tipo-novo-in" placeholder="Nome do novo tipo de receita" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();tipoRapidoSalvar('ov')}">
+          <div style="display:flex;gap:6px"><button type="button" class="btn btn-sm btn-primary" onclick="tipoRapidoSalvar('ov')"><i class="ti ti-check"></i> Cadastrar</button>
+          <button type="button" class="btn btn-sm" onclick="tipoRapidoFechar('ov')">Cancelar</button></div>
+        </div>
       </div>
       <div class="form-group full"><label class="form-label">Cliente *</label><input id="ov-venda-cliente" placeholder="Nome do cliente"></div>
       <div class="form-group full"><label class="form-label">Produto *</label><input id="ov-produto" placeholder="Descrição do produto/serviço"></div>
@@ -1540,9 +1572,14 @@ tbody tr:hover td{background:var(--bg3)}
     <div class="form-grid">
       <div class="form-group"><label class="form-label">Data *</label><input type="date" id="dp-data"></div>
       <div class="form-group"><label class="form-label">Tipo de despesa *</label>
-        <select id="dp-tipo-rec">
+        <select id="dp-tipo-rec" onchange="tipoRapidoEscolha('dp',this.value)">
           <option value="">Selecione...</option>
         </select>
+        <div class="tipo-novo" id="dp-tipo-novo" style="display:none">
+          <input id="dp-tipo-novo-in" placeholder="Nome do novo tipo de despesa" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();tipoRapidoSalvar('dp')}">
+          <div style="display:flex;gap:6px"><button type="button" class="btn btn-sm btn-primary" onclick="tipoRapidoSalvar('dp')"><i class="ti ti-check"></i> Cadastrar</button>
+          <button type="button" class="btn btn-sm" onclick="tipoRapidoFechar('dp')">Cancelar</button></div>
+        </div>
       </div>
       <div class="form-group full"><label class="form-label">Responsável / Servidor</label><input id="dp-responsavel" list="dp-lista-servidores" placeholder="Ex: Slim, Club, UniTV, Painel..."><datalist id="dp-lista-servidores"></datalist>
         <div style="font-size:11px;color:var(--muted);margin-top:4px">Para renovação de servidor, escolha o servidor da lista: o valor entra como custo dele na <b>Margem por servidor</b>.</div></div>
@@ -1956,6 +1993,7 @@ async function renderDash(){
 }
 
 /* ── CLIENTES ── */
+const _cliNomes={};
 async function renderClientes(){
   const busca=(document.getElementById('bc')||{value:''}).value;
   const fst=(document.getElementById('fsc')||{value:''}).value;
@@ -1966,13 +2004,18 @@ async function renderClientes(){
   try{
     const lista=await api('GET',url);
     if(seq!==window._bcSeq) return;   // chegou resposta de uma busca antiga
+    if(!busca&&!fst) lista.forEach(c=>_cliNomes[c.id]=c.nome);
+    else if(lista.some(c=>c.indicado_por&&!_cliNomes[c.indicado_por])){
+      try{ (await api('GET','/api/clientes')).forEach(c=>_cliNomes[c.id]=c.nome); }catch{}
+      if(seq!==window._bcSeq) return;
+    }
     document.getElementById('clientes-table').innerHTML=lista.length===0
       ?`<div class="empty"><i class="ti ti-users"></i><p>${busca?'Nenhum cliente encontrado.':'Nenhum cliente cadastrado ainda.'}</p></div>`
       :`<table><thead><tr>
           <th>Nome</th><th>Celular</th><th>Servidor</th>
           <th>Venc.</th><th>Valor</th><th>Status</th><th></th>
         </tr></thead><tbody>${lista.map(c=>`<tr>
-          <td style="font-weight:600">${c.grupo?'<i class="ti ti-link" title="Conta vinculada" style="color:var(--accent);margin-right:4px"></i>':''}${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span>${c.grupo&&lista.some(o=>o.grupo===c.grupo&&o.id!==c.id)?`<div class="ext-sub" style="font-weight:400;color:var(--accent)">Vinculada com: ${lista.filter(o=>o.grupo===c.grupo&&o.id!==c.id).map(o=>escH(o.nome)).join(', ')}</div>`:''}${(c.apelido||(c.nomes_terceiros||[]).length)?`<div class="ext-sub" style="font-weight:400">${c.apelido?`Apelido: ${escH(c.apelido)}`:''}${c.apelido&&(c.nomes_terceiros||[]).length?' · ':''}${(c.nomes_terceiros||[]).length?`Terceiros: ${c.nomes_terceiros.map(escH).join(', ')}`:''}</div>`:''}${devDoCliente(c).map(d=>`<div class="ext-sub" style="font-weight:400" title="${escH(d.login||'')}"><i class="ti ti-device-tv"></i> ${d.nome?escH(d.nome)+': ':''}${escH(d.app||'—')}${d.login?` · ${escH(d.login)}`:''}</div>`).join('')}</td>
+          <td style="font-weight:600">${c.grupo?'<i class="ti ti-link" title="Conta vinculada" style="color:var(--accent);margin-right:4px"></i>':''}${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span>${c.grupo&&lista.some(o=>o.grupo===c.grupo&&o.id!==c.id)?`<div class="ext-sub" style="font-weight:400;color:var(--accent)">Vinculada com: ${lista.filter(o=>o.grupo===c.grupo&&o.id!==c.id).map(o=>escH(o.nome)).join(', ')}</div>`:''}${(c.apelido||(c.nomes_terceiros||[]).length)?`<div class="ext-sub" style="font-weight:400">${c.apelido?`Apelido: ${escH(c.apelido)}`:''}${c.apelido&&(c.nomes_terceiros||[]).length?' · ':''}${(c.nomes_terceiros||[]).length?`Terceiros: ${c.nomes_terceiros.map(escH).join(', ')}`:''}</div>`:''}${c.indicado_por&&_cliNomes[c.indicado_por]?`<div class="ext-sub" style="font-weight:400"><i class="ti ti-user-share"></i> Indicado por ${escH(_cliNomes[c.indicado_por])}</div>`:''}${devDoCliente(c).map(d=>`<div class="ext-sub" style="font-weight:400" title="${escH(d.login||'')}"><i class="ti ti-device-tv"></i> ${d.nome?escH(d.nome)+': ':''}${escH(d.app||'—')}${d.login?` · ${escH(d.login)}`:''}</div>`).join('')}</td>
           <td data-label="Celular">${c.celular||'—'}</td>
           <td data-label="Servidor">${c.servidor||'—'}</td>
           <td data-label="Venc.">Dia ${c.dia}${c.dia_cobranca&&c.dia_cobranca!==c.dia?`<div class="ext-sub" title="Dia de cobrança">cobra dia ${c.dia_cobranca}</div>`:''}</td>
@@ -2031,7 +2074,9 @@ async function cobsClientesBusca(){
         <div class="cob-cli-item" onclick="abrirHist('${c.id}','${esc(c.nome)}')">
           <div style="min-width:0"><div class="cob-cli-nome" title="${escH(c.nome)}">${escH(c.nome)}</div>
             <div class="cob-cli-sub">${[c.apelido?'Apelido: '+escH(c.apelido):'',(c.nomes_terceiros||[]).filter(n=>norm(n).includes(nq)).map(n=>'Terceiro: '+escH(n)).join(', '),escH(c.servidor||''),fmtV(c.valor)+' · dia '+c.dia,c.status==='ativo'?'':'<span style="color:var(--red)">inativo</span>'].filter(Boolean).join(' · ')}</div></div>
-          <span class="btn btn-sm" style="color:var(--accent);border-color:var(--accent);flex-shrink:0"><i class="ti ti-clock"></i> Pagamentos</span>
+          <span style="display:flex;gap:6px;flex-shrink:0">
+            <span class="btn btn-sm btn-success" onclick="event.stopPropagation();abrirPag(null,'${esc(c.nome)}','${esc(c.servidor||'')}',null,null,${Number(c.valor)||0},'${c.id}')" title="Registrar recebimento (inclusive meses adiantados)"><i class="ti ti-cash"></i> Receber</span>
+            <span class="btn btn-sm" style="color:var(--accent);border-color:var(--accent)"><i class="ti ti-clock"></i> Pagamentos</span></span>
         </div>`).join('')}</div>`;
     box.style.display='';
   }catch(e){ box.style.display='none'; }
@@ -2147,6 +2192,7 @@ async function renderCobs(vencerEmDias){
             <td class="hide-mobile"><span class="badge badge-${cb.status}">${LBL[cb.status]}</span></td>
             <td><div class="btn-group">
               ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor||''}','${cb.vencimento}','${cb.mes_ref}',${cb.valor},'${cb.cliente_id}')"><i class="ti ti-check"></i><span> Pago</span></button>`:''}
+              ${cb.status==='pago'&&cb.cliente_id?`<button class="btn btn-sm" style="color:var(--purple);border-color:var(--purple)" onclick="abrirPag(null,'${esc(cb.cliente_nome)}','${esc(cb.servidor||'')}',null,null,${Number(cb.valor)||0},'${cb.cliente_id}')" title="Receber meses adiantados"><i class="ti ti-calendar-plus"></i><span> Adiantar</span></button>`:''}
               ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')"><i class="ti ti-brand-whatsapp"></i></button>`:''}
               ${cb.status!=='cancelado'&&cb.status!=='pago'?`<button class="btn btn-sm btn-danger" onclick="cancelCob('${cb.id}')"><i class="ti ti-x"></i></button>`:''}
               <button class="btn btn-sm" style="color:var(--accent);border-color:var(--accent);margin-left:auto" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Histórico do cliente"><i class="ti ti-clock"></i></button>
@@ -2958,10 +3004,12 @@ async function openClienteModal(id){
   }catch{ _appsCache=[]; }
 
   const f=x=>document.getElementById(x);
+  let _todosCli=[];
+  try{ _todosCli=await api('GET','/api/clientes'); }catch{ _todosCli=[]; }
 
   if(id){
     try{
-      const todos=await api('GET','/api/clientes');
+      const todos=_todosCli.length?_todosCli:await api('GET','/api/clientes');
       const c=todos.find(x=>x.id===id);
       if(!c){ toast('Cliente não encontrado','err'); return; }
       f('mc-title').textContent='Editar cliente';
@@ -2977,6 +3025,7 @@ async function openClienteModal(id){
       f('f-valor').value=c.valor;
       f('f-status').value=c.status;
       f('f-obs').value=c.obs||'';
+      indicCarregar(todos, c.id, c.indicado_por||'');
       _dev.f=devDoCliente(c);
       f('f-id').value=c.id;
     }catch(e){ toast('Erro ao carregar cliente','err'); return; }
@@ -2994,6 +3043,7 @@ async function openClienteModal(id){
     f('f-dia-cob').value='';
     f('f-valor').value='';
     f('f-obs').value='';
+    indicCarregar(_todosCli, null, '');
     _dev.f=[];
     f('f-status').value='ativo';
     f('f-id').value='';
@@ -3004,6 +3054,67 @@ async function openClienteModal(id){
 }
 
 let _appsCache=[];
+
+/* ── INDICAÇÃO (cliente que indicou) ── */
+const _indic={id:null, lista:[]};
+function indicRotulo(c){ return c.nome+(c.apelido?` (${c.apelido})`:'')+(c.status==='ativo'?'':' — inativo'); }
+function indicCarregar(todos, proprioId, atualId){
+  _indic.lista=(todos||[]).filter(c=>c.id!==proprioId).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+  document.getElementById('f-indic-dl').innerHTML=_indic.lista.map(c=>`<option value="${escH(indicRotulo(c))}"></option>`).join('');
+  const c=atualId?_indic.lista.find(x=>x.id===atualId):null;
+  _indic.id=c?c.id:null;
+  document.getElementById('f-indic').value=c?indicRotulo(c):'';
+  indicHint();
+}
+function indicEscolha(){
+  const v=document.getElementById('f-indic').value.trim();
+  const norm=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const nv=norm(v);
+  let c=_indic.lista.find(x=>norm(indicRotulo(x))===nv);
+  if(!c){ const porNome=_indic.lista.filter(x=>norm(x.nome)===nv); if(porNome.length===1) c=porNome[0]; }
+  _indic.id=c?c.id:null;
+  indicHint();
+}
+function indicHint(){
+  const v=document.getElementById('f-indic').value.trim(), h=document.getElementById('f-indic-hint');
+  const c=_indic.id?_indic.lista.find(x=>x.id===_indic.id):null;
+  h.innerHTML=c?`<span style="color:var(--green)"><i class="ti ti-check"></i> Indicado por ${escH(c.nome)}${c.servidor?' · '+escH(c.servidor):''}</span>`
+    :v?'<span style="color:var(--amber)">Selecione um cliente da lista</span>':'';
+}
+function indicLimpar(){ document.getElementById('f-indic').value=''; _indic.id=null; indicHint(); }
+
+/* ── RELATÓRIO DE INDICAÇÕES ── */
+let _indRel=null;
+async function abrirIndicacoes(){
+  openOv('ov-indic');
+  document.getElementById('ind-lista').innerHTML='<div class="loading">Carregando...</div>';
+  document.getElementById('ind-resumo').innerHTML='';
+  try{ _indRel=await api('GET','/api/relatorios/indicacoes'); }
+  catch(e){ document.getElementById('ind-lista').innerHTML='<div class="empty"><p>Erro ao carregar o relatório.</p></div>'; return; }
+  renderIndicacoes();
+}
+function renderIndicacoes(){
+  const r=_indRel||{indicadores:[]}, box=document.getElementById('ind-lista');
+  if(r.falta_migracao){ box.innerHTML='<div class="empty"><i class="ti ti-database"></i><p>Rode o SQL <b>MIGRACAO_INDICACOES.sql</b> no Supabase para ativar as indicações.</p></div>'; return; }
+  const q=(document.getElementById('ind-busca').value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+  const norm=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const inds=r.indicadores.filter(g=>!q||norm(g.nome).includes(q)||g.indicados.some(i=>norm(i.nome).includes(q)));
+  const tot=r.indicadores, ativos=tot.reduce((s,g)=>s+g.ativos,0);
+  document.getElementById('ind-resumo').innerHTML=`
+    <div class="hist-stat"><div class="hist-stat-label">Clientes que indicaram</div><div class="hist-stat-val">${tot.length}</div></div>
+    <div class="hist-stat"><div class="hist-stat-label">Indicados (${ativos} ativos)</div><div class="hist-stat-val">${r.total_indicados||0}</div></div>
+    <div class="hist-stat"><div class="hist-stat-label">Mensal dos indicados ativos</div><div class="hist-stat-val" style="color:var(--green)">${fmtV(tot.reduce((s,g)=>s+g.mensal_ativos,0))}</div></div>`;
+  if(!inds.length){ box.innerHTML=`<div class="empty"><i class="ti ti-users"></i><p>${q?'Nada encontrado.':'Nenhuma indicação registrada ainda. Use o campo “Indicado por” no cadastro do cliente.'}</p></div>`; return; }
+  box.innerHTML=inds.map(g=>`<details class="ind-item"${q?' open':''}>
+    <summary><div style="min-width:0;flex:1"><div style="font-weight:600">${escH(g.nome)} ${g.status==='ativo'?'':'<span class="badge badge-inativo">Inativo</span>'}</div>
+      <div class="ext-sub">${g.total} indicação(ões) · ${g.ativos} ativa(s) · mensal ${fmtV(g.mensal_ativos)} · já pagaram ${fmtV(g.total_pago)}</div></div>
+      <span class="ind-qtd">${g.total}</span></summary>
+    <table><thead><tr><th>Indicado</th><th>Servidor</th><th>Cadastro</th><th>Mensal</th><th>Total pago</th></tr></thead><tbody>
+    ${g.indicados.map(i=>`<tr><td data-label="Indicado"><a href="#" style="color:var(--accent);font-weight:600;text-decoration:none" title="Ver pagamentos" onclick="event.preventDefault();abrirHist('${i.id}','${esc(i.nome)}')">${escH(i.nome)}</a> <span class="badge badge-${i.status}">${i.status==='ativo'?'Ativo':'Inativo'}</span></td>
+      <td data-label="Servidor">${escH(i.servidor||'—')}</td><td data-label="Cadastro">${i.criado?fmtD(String(i.criado).slice(0,10)):'—'}</td>
+      <td data-label="Mensal">${fmtV(i.valor)}</td><td data-label="Total pago" style="color:var(--green);font-weight:600">${fmtV(i.pago)}</td></tr>`).join('')}
+    </tbody></table></details>`).join('');
+}
 /* ── TVs / APLICATIVOS DO CLIENTE (várias TVs, cada uma com seu app) ── */
 const _dev={f:[],p:[]};
 function devDoCliente(c){
@@ -3015,7 +3126,8 @@ function devRender(k,desabilitar){
   const box=document.getElementById(k+'-devs'); if(!box) return;
   const opcoes=atual=>{
     const nomes=_appsCache.map(a=>a.nome); if(atual&&!nomes.includes(atual)) nomes.push(atual);
-    return '<option value="">App...</option>'+nomes.map(n=>`<option value="${escH(n)}"${n===atual?' selected':''}>${escH(n)}</option>`).join('');
+    return '<option value="">App...</option>'+nomes.map(n=>`<option value="${escH(n)}"${n===atual?' selected':''}>${escH(n)}</option>`).join('')
+      +'<option value="__novo__">＋ Cadastrar novo app...</option>';
   };
   box.innerHTML=_dev[k].map((d,i)=>{
     const t=credDoApp(d.app), soMac=t==='mac';
@@ -3023,13 +3135,40 @@ function devRender(k,desabilitar){
     const dis=desabilitar?' disabled':'';
     return `<div class="dev-row${soMac?' so-mac':''}">
       <input value="${escH(d.nome)}" placeholder="TV ${i+1}" oninput="_dev.${k}[${i}].nome=this.value" title="Nome da TV (opcional)" autocomplete="off"${dis}>
-      <select onchange="_dev.${k}[${i}].app=this.value;devRender('${k}')"${dis}>${opcoes(d.app)}</select>
+      <select onchange="devEscolherApp('${k}',${i},this.value)"${dis}>${opcoes(d.app)}</select>
       <input class="dev-login" value="${escH(d.login)}" placeholder="${ROT[0]}" oninput="_dev.${k}[${i}].login=this.value" autocomplete="off" spellcheck="false"${dis}>
       ${soMac?'':`<input class="dev-senha" value="${escH(d.senha)}" placeholder="${ROT[1]}" oninput="_dev.${k}[${i}].senha=this.value" autocomplete="off" spellcheck="false"${dis}>`}
       <button type="button" class="btn btn-sm btn-danger dev-x" onclick="_dev.${k}.splice(${i},1);devRender('${k}')" title="Remover esta TV"${dis}><i class="ti ti-x"></i></button>
+      ${d._novo?`<div class="dev-novo">
+        <input id="dev-novo-nome-${k}-${i}" placeholder="Nome do novo app (ex.: Aura APP)" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();devSalvarApp('${k}',${i})}">
+        <select id="dev-novo-cred-${k}-${i}">
+          <option value="usuario_senha" selected>Usuário e Senha</option><option value="mac_key">MAC e Key</option>
+          <option value="mac">Só MAC</option><option value="email_senha">E-mail e Senha</option></select>
+        <button type="button" class="btn btn-sm btn-primary" onclick="devSalvarApp('${k}',${i})"><i class="ti ti-check"></i> Cadastrar</button>
+        <button type="button" class="btn btn-sm" onclick="_dev.${k}[${i}]._novo=false;devRender('${k}')">Cancelar</button>
+      </div>`:''}
     </div>`;
   }).join('')+`<button type="button" class="btn btn-sm dev-add" onclick="_dev.${k}.push({nome:'',app:'',login:'',senha:''});devRender('${k}')"${desabilitar?' disabled':''}><i class="ti ti-plus"></i> ${_dev[k].length?'Adicionar outra TV':'Adicionar TV / aplicativo'}</button>`;
 }
+// Escolha do app na TV; "Cadastrar novo app..." abre o mini cadastro ali mesmo
+function devEscolherApp(k,i,v){
+  if(v==='__novo__'){ _dev[k][i]._novo=true; devRender(k); setTimeout(()=>document.getElementById(`dev-novo-nome-${k}-${i}`)?.focus(),0); return; }
+  _dev[k][i].app=v; _dev[k][i]._novo=false; devRender(k);
+}
+async function devSalvarApp(k,i){
+  const nome=(document.getElementById(`dev-novo-nome-${k}-${i}`)?.value||'').trim();
+  const credencial=document.getElementById(`dev-novo-cred-${k}-${i}`)?.value||'usuario_senha';
+  if(!nome){ toast('Informe o nome do app','err'); return; }
+  const jaExiste=_appsCache.find(a=>a.nome.toLowerCase()===nome.toLowerCase());
+  try{
+    if(!jaExiste) await api('POST','/api/apps',{nome,credencial});
+    _appsCache=await api('GET','/api/apps');
+    _dev[k][i].app=jaExiste?jaExiste.nome:nome; _dev[k][i]._novo=false;
+    devRender(k);
+    toast(jaExiste?`"${jaExiste.nome}" já existia — selecionado.`:`App "${nome}" cadastrado!`);
+  }catch(e){ let m='Erro ao cadastrar o app'; try{m=JSON.parse(e.message).erro||m;}catch{} toast(m,'err'); }
+}
+
 // Lista pronta para salvar: MAC formatado; app "só MAC" não guarda key
 function devLista(k){
   return _dev[k].map(d=>{
@@ -3076,6 +3215,9 @@ async function salvarCliente(){
     obs: g('f-obs'),
     aparelhos: devLista('f')
   };
+  // Indicação: só aceita cliente cadastrado
+  if(g('f-indic') && !_indic.id){ toast('Indicação: escolha um cliente cadastrado da lista (ou deixe vazio)','err'); return; }
+  if(_indic.id || editId) body.indicado_por=_indic.id||null;
 
   // Pagamento junto com o cadastro (só cliente novo)
   const pag=!editId && document.getElementById('f-pag-on').checked ? ncPagDados(body.valor) : null;
@@ -3759,7 +3901,7 @@ function normTel(v){ let d=String(v||'').replace(/\D/g,''); if(d.length>11 && d.
 // do cliente para escolher quais acertar, com opção de anular alguma.
 let _pag={parcelas:[],clienteId:null,clicada:null};
 async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
-  _pag={parcelas:[],clienteId:clienteId||null,clicada:id,cliente:null,tercIni:[],ini:null,contas:[],hists:{}};
+  _pag={parcelas:[],valorBase:Number(valor)||0,clienteId:clienteId||null,clicada:id,cliente:null,tercIni:[],ini:null,contas:[],hists:{}};
   _terc.p=[]; chipRender('p'); document.getElementById('p-terc-in').value='';
   const $p=x=>document.getElementById(x);
   $p('p-nome-in').value=nome; $p('p-apelido').value=''; $p('p-cel').value=''; $p('p-dia').value=''; $p('p-dia-cob').value='';
@@ -3788,7 +3930,7 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
   document.getElementById('p-obs').value='';
   // Parcela clicada sempre entra; as demais vêm do histórico do cliente
   // (e das contas vinculadas a ele — mesmo cliente pagando várias contas)
-  let abertas=[{id,vencimento:venc,mes_ref:ref,valor:Number(valor),status:'pendente',cliente_id:clienteId}];
+  let abertas=id?[{id,vencimento:venc,mes_ref:ref,valor:Number(valor),status:'pendente',cliente_id:clienteId}]:[];
   document.getElementById('p-6m').innerHTML='';
   if(clienteId){
     try{
@@ -3796,7 +3938,7 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
       _pag.hist=hist; _pag.hists[clienteId]=hist;
       document.getElementById('p-6m').innerHTML=resumo6Meses(hist,`abrirHist('${clienteId}','${esc(nome)}')`);
       const ab=hist.filter(h=>h.status==='pendente'||h.status==='vencido').map(h=>({...h,cliente_id:clienteId}));
-      if(ab.some(h=>h.id===id)) abertas=ab;
+      if(!id || ab.some(h=>h.id===id)) abertas=ab;
     }catch(e){}
     try{
       const vinc=(await api('GET',`/api/clientes/${clienteId}/vinculados`)).filter(c=>c.id!==clienteId);
@@ -3811,11 +3953,12 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
   if(multiConta) abertas.forEach(a=>{ if(!a.conta) a.conta=(_pag.contas.find(c=>c.id===a.cliente_id)||{}).nome||nome; });
   abertas.sort((x,y)=>String(x.mes_ref||x.vencimento||'').localeCompare(String(y.mes_ref||y.vencimento||'')) || String(x.conta||'').localeCompare(String(y.conta||'')));
   // Já vem marcado da parcela mais antiga em atraso até o mês da que foi clicada (dá para desmarcar)
-  const refClicada=String((abertas.find(h=>h.id===id)||{}).mes_ref||ref||String(venc||'').slice(0,7));
+  const refClicada=id?String((abertas.find(h=>h.id===id)||{}).mes_ref||ref||String(venc||'').slice(0,7)):'9999-99';
   _pag.parcelas=abertas.map(h=>({id:h.id,vencimento:h.vencimento,mes_ref:h.mes_ref,status:h.status,valor:Number(h.valor||0),
     cliente_id:h.cliente_id, conta:multiConta?h.conta:null,
-    pagar:h.id===id || String(h.mes_ref||String(h.vencimento||'').slice(0,7))<=refClicada, valorPago:Number(h.valor||0)}));
-  renderPagParcelas();
+    pagar:(id&&h.id===id) || String(h.mes_ref||String(h.vencimento||'').slice(0,7))<=refClicada, valorPago:Number(h.valor||0)}));
+  if(!id && !_pag.parcelas.length && clienteId) pagAddMes(); // tudo pago: já sugere o próximo mês adiantado
+  else renderPagParcelas();
   // Carregar servidores no select e pré-selecionar o atual
   try{
     const servs=await api('GET','/api/servidores');
@@ -3831,7 +3974,7 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
 
 function renderPagParcelas(){
   const box=document.getElementById('p-parcelas');
-  const multi=_pag.parcelas.length>1;
+  const multi=_pag.parcelas.length>1 || _pag.parcelas.some(p=>p.futuro) || !_pag.clicada;
   document.querySelector('#ov-pagamento .modal').classList.toggle('multi',multi);
   document.getElementById('p-valor-grp').style.display=multi?'none':'';
   document.getElementById('p-data-grp').classList.toggle('full',multi);
@@ -3875,7 +4018,7 @@ function pagAddMes(){
   const contas=_pag.contas&&_pag.contas.length>1?_pag.contas:[_pag.cliente||{id:_pag.clienteId}];
   for(const c of contas){
     const mr=pagProximoMes(c.id); if(!mr) continue;
-    const valor=Number(c.valor||_pag.parcelas[0]?.valor||0);
+    const valor=Number(c.valor||_pag.parcelas[0]?.valor||_pag.valorBase||0);
     const [a,m]=mr.split('-').map(Number), dia=Math.min(parseInt(c.dia)||1, new Date(a,m,0).getDate());
     _pag.parcelas.push({id:null, futuro:true, cliente_id:c.id, conta:contas.length>1?c.nome:null, mes_ref:mr, vencimento:`${mr}-${pad(dia)}`, status:'pendente', valor, valorPago:valor, pagar:true});
   }
@@ -3919,7 +4062,7 @@ async function confirmarPag(){
   const servidor_novo=document.getElementById('p-servidor').value||'';
   const obs_pagamento=document.getElementById('p-obs').value;
   let itens;
-  if(_pag.parcelas.length>1){
+  if(_pag.parcelas.length>1 || _pag.parcelas.some(p=>p.futuro||!p.id) || !_pag.clicada){
     itens=_pag.parcelas.filter(p=>p.pagar).map(p=>({id:p.id,mes_ref:p.mes_ref,futuro:!!p.futuro,cliente_id:p.cliente_id,valor_pago:parseFloat(p.valorPago)}));
     if(!itens.length){toast('Marque ao menos uma parcela','err');return;}
   }else{
@@ -4047,6 +4190,29 @@ function ulRender(){
   document.getElementById('ul-lista').innerHTML=html;
 }
 function finDiaAnterior(iso){ const d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()-1); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+
+/* ── Cadastro rápido de tipo de receita/despesa direto do formulário ── */
+function tipoRapidoEscolha(pre,v){
+  const box=document.getElementById(pre+'-tipo-novo'); if(!box) return;
+  if(v==='__novo__'){ box.style.display=''; const i=document.getElementById(pre+'-tipo-novo-in'); i.value=''; setTimeout(()=>i.focus(),0); }
+  else box.style.display='none';
+}
+function tipoRapidoFechar(pre){
+  const box=document.getElementById(pre+'-tipo-novo'); if(box) box.style.display='none';
+  const sel=document.getElementById(pre+'-tipo-rec'); if(sel && sel.value==='__novo__') sel.value='';
+}
+async function tipoRapidoSalvar(pre){
+  const nome=document.getElementById(pre+'-tipo-novo-in').value.replace(/\s+/g,' ').trim();
+  if(!nome){ toast('Informe o nome do tipo','err'); return; }
+  const receita=pre==='ov';
+  try{
+    const existentes=await api('GET',receita?'/api/outras-vendas/tipos':'/api/despesas/tipos');
+    const igual=existentes.find(t=>t.toLowerCase()===nome.toLowerCase());
+    if(!igual) await api('POST',receita?'/api/tipos-receita':'/api/tipos-despesa',{nome});
+    await (receita?ovCarregarSelectTipos:dpCarregarSelectTipos)(igual||nome);
+    toast(igual?`"${igual}" já existia — selecionado.`:`Tipo "${nome}" cadastrado!`);
+  }catch(e){ let m='Erro ao cadastrar o tipo'; try{m=JSON.parse(e.message).erro||m;}catch{} toast(m,'err'); }
+}
 
 /* ── HISTÓRICO ── */
 // Resumo dos últimos 6 meses (por mês de referência): pago em dia, pago com
@@ -4618,17 +4784,15 @@ function ovLimparResumo(){
 
 /* Nova / Editar */
 async function ovCarregarSelectTipos(selecionado){
+  const sel=document.getElementById('ov-tipo-rec');
+  tipoRapidoFechar('ov');
   try{
     const tipos=await api('GET','/api/outras-vendas/tipos');
-    const sel=document.getElementById('ov-tipo-rec');
-    if(!tipos.length){
-      sel.innerHTML='<option value="">Nenhum tipo cadastrado — cadastre em Cadastros Gerais</option>';
-      return;
-    }
-    sel.innerHTML='<option value="">Selecione...</option>'+
-      tipos.map(t=>`<option value="${escH(t)}"${t===selecionado?' selected':''}>${escH(t)}</option>`).join('');
+    sel.innerHTML=(tipos.length?'<option value="">Selecione...</option>':'<option value="">Nenhum tipo cadastrado ainda</option>')+
+      tipos.map(t=>`<option value="${escH(t)}"${t===selecionado?' selected':''}>${escH(t)}</option>`).join('')+
+      '<option value="__novo__">＋ Cadastrar novo tipo...</option>';
   }catch{
-    document.getElementById('ov-tipo-rec').innerHTML='<option value="">Erro ao carregar tipos</option>';
+    sel.innerHTML='<option value="">Erro ao carregar tipos</option><option value="__novo__">＋ Cadastrar novo tipo...</option>';
   }
 }
 
@@ -4694,7 +4858,7 @@ function ovValidar(){
   if(!dt) erros.push(['ov-data','Informe a data.']);
   else if(!/^\d{4}-\d{2}-\d{2}$/.test(dt) || isNaN(new Date(dt+'T12:00:00'))) erros.push(['ov-data','Data inválida.']);
   const selTipo=document.getElementById('ov-tipo-rec');
-  if(!val('ov-tipo-rec')) erros.push(['ov-tipo-rec', selTipo.options.length<=1 && !selTipo.options[0]?.textContent.startsWith('Selecione')
+  if(!val('ov-tipo-rec')||val('ov-tipo-rec')==='__novo__') erros.push(['ov-tipo-rec', selTipo.options.length<=1 && !selTipo.options[0]?.textContent.startsWith('Selecione')
       ? 'Nenhum tipo de receita cadastrado — cadastre em Cadastros Gerais.' : 'Selecione o tipo de receita.']);
   if(!val('ov-venda-cliente')) erros.push(['ov-venda-cliente','Informe o cliente.']);
   if(!val('ov-produto')) erros.push(['ov-produto','Informe o produto.']);
@@ -4996,17 +5160,15 @@ function dpLimparResumo(){
 }
 
 async function dpCarregarSelectTipos(selecionado){
+  const sel=document.getElementById('dp-tipo-rec');
+  tipoRapidoFechar('dp');
   try{
     const tipos=await api('GET','/api/despesas/tipos');
-    const sel=document.getElementById('dp-tipo-rec');
-    if(!tipos.length){
-      sel.innerHTML='<option value="">Nenhum tipo cadastrado — cadastre em Cadastros Gerais</option>';
-      return;
-    }
-    sel.innerHTML='<option value="">Selecione...</option>'+
-      tipos.map(t=>`<option value="${t}"${t===selecionado?' selected':''}>${t}</option>`).join('');
+    sel.innerHTML=(tipos.length?'<option value="">Selecione...</option>':'<option value="">Nenhum tipo cadastrado ainda</option>')+
+      tipos.map(t=>`<option value="${escH(t)}"${t===selecionado?' selected':''}>${escH(t)}</option>`).join('')+
+      '<option value="__novo__">＋ Cadastrar novo tipo...</option>';
   }catch{
-    document.getElementById('dp-tipo-rec').innerHTML='<option value="">Erro ao carregar tipos</option>';
+    sel.innerHTML='<option value="">Erro ao carregar tipos</option><option value="__novo__">＋ Cadastrar novo tipo...</option>';
   }
 }
 
@@ -5060,7 +5222,7 @@ function dpCalcTotal(){
 
 async function dpSalvar(){
   const g=x=>document.getElementById(x).value.trim();
-  if(!g('dp-data')||!g('dp-tipo-rec')||!g('dp-valor-un')){
+  if(!g('dp-data')||!g('dp-tipo-rec')||g('dp-tipo-rec')==='__novo__'||!g('dp-valor-un')){
     toast('Preencha data, tipo e valor','err'); return;
   }
   const body={

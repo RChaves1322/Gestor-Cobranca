@@ -19,6 +19,8 @@ const sbAuth = createClient(
   { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
 );
 
+const _tokOk=new Map(); // token -> validade (ms) do cache de autenticação
+
 // ── Helpers ──────────────────────────────────────────────────────
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 function pad(n) { return String(n).padStart(2,'0'); }
@@ -38,8 +40,12 @@ function normalizarServidor(s) {
   return mapa[t] || mapa[t.toLowerCase()] || t;
 }
 
-async function marcarVencidos() {
+// Roda no máximo 1x a cada 5 min por instância (antes rodava um UPDATE a cada listagem)
+let _vencidosEm=0, _vencidosDia='';
+async function marcarVencidos(forcar) {
   const hoje = new Date().toISOString().slice(0,10);
+  if (!forcar && hoje===_vencidosDia && Date.now()-_vencidosEm < 5*60*1000) return;
+  _vencidosEm=Date.now(); _vencidosDia=hoje;
   await sb.from('movimentos_financeiros')
     .update({ status: 'vencido' })
     .eq('status','pendente')
@@ -348,8 +354,17 @@ export default async function handler(req, res) {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   if (!token) return err(res, 'Não autenticado', 401);
-  const { data: authData, error: authError } = await sbAuth.auth.getUser(token);
-  if (authError || !authData?.user) return err(res, 'Sessão inválida ou expirada', 401);
+  // Token já validado há pouco nesta instância: não consulta o Supabase Auth de novo
+  // (economiza uma ida e volta em toda chamada). Vale por 2 min e nunca além do exp do token.
+  const cacheTok=_tokOk.get(token);
+  if (!(cacheTok && cacheTok>Date.now())) {
+    const { data: authData, error: authError } = await sbAuth.auth.getUser(token);
+    if (authError || !authData?.user) { _tokOk.delete(token); return err(res, 'Sessão inválida ou expirada', 401); }
+    let exp=Date.now()+2*60*1000;
+    try { const pl=JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'),'base64').toString()); if (pl.exp) exp=Math.min(exp, pl.exp*1000); } catch {}
+    if (_tokOk.size>200) _tokOk.clear();
+    _tokOk.set(token, exp);
+  }
   // ─── SERVIDORES ───────────────────────────────────────────────
   // ─── APPS (IBO Player, Clouddy...) ────────────────────────────
   // credencial: 'mac_key' (MAC + Key), 'mac' (só MAC), 'email_senha' (E-mail + Senha) ou 'usuario_senha' (Usuário + Senha)

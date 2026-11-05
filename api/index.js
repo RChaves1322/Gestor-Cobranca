@@ -586,7 +586,10 @@ export default async function handler(req, res) {
       ...(dp.data||[]).map(r=>({ tipo:'despesa', id:r.id, titulo:r.descricao||r.tipo, detalhe:`${r.tipo}${r.responsavel?' · '+r.responsavel:''}`,
         data:r.data, lancado_em:r.criado, valor:-Number(r.total||0), origem:'Despesa' }))
     ];
-    const chave=i=>i.lancado_em||(String(i.data||'')+'T00:00:00');
+    // Ordena pelo horário de Brasília: o "lançado em" vem em UTC e a data do pagamento
+    // é só o dia — sem converter, um lançamento das 22h aparecia como do dia seguinte.
+    const brt=ts=>{ const t=Date.parse(ts); return isNaN(t)?'':new Date(t-3*3600*1000).toISOString().slice(0,19); };
+    const chave=i=>i.lancado_em ? brt(i.lancado_em) : String(i.data||'').slice(0,10)+'T00:00:00';
     itens.sort((x,y)=>chave(y).localeCompare(chave(x)));
     const datasPag=[...movs.values()].map(m=>m.pago_em).filter(Boolean).sort();
     return res.json({

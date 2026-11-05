@@ -4211,7 +4211,7 @@ function ulRender(){
     const clique=i.tipo==='mensalidade'&&i.cliente_id?` class="ul-tit cli-link" onclick="abrirHist('${i.cliente_id}','${esc(i.titulo||'')}')"`:' class="ul-tit"';
     html+=`<div class="ul-item">
       <div class="ul-data">${fmtD(String(i.data||'').slice(0,10)).slice(0,5)}<small>${i.lancado_em?ulQuando(i.lancado_em).replace(/^\d\d\/\d\d /,''):'pagamento'}</small></div>
-      <div style="min-width:0"><div${clique} title="${escH(i.titulo||'')}">${escH(i.titulo||'—')}</div><div class="ul-det">${escH(i.detalhe||'')}</div></div>
+      <div style="min-width:0"><div${clique} title="${escH(i.titulo||'')}">${escH(i.titulo||'—')}${i.qtd>1?` <span class="ul-tag" style="margin-left:4px" title="${(i.meses||[]).map(fmtMesRef).join(', ')}">${i.qtd} meses</span>`:''}</div><div class="ul-det" title="${(i.meses||[]).map(fmtMesRef).join(', ')}">${escH(i.detalhe||'')}</div></div>
       <span class="ul-tag">${escH(i.origem||'')}</span>
       <div class="ul-val" style="color:${cor}">${fmtV(Math.abs(i.valor))}${i.valor<0?' <small style="font-weight:400">saída</small>':''}</div>
     </div>`;

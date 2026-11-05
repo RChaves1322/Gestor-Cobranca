@@ -236,6 +236,7 @@ function listaNomes(v){
 function camposExtras(body, upd){
   if (body.apelido!==undefined)         upd.apelido=String(body.apelido||'').trim()||null;
   if (body.nomes_terceiros!==undefined) upd.nomes_terceiros=listaNomes(body.nomes_terceiros);
+  if (body.indicado_por!==undefined)    upd.indicado_por=String(body.indicado_por||'').trim()||null;
   return upd;
 }
 function camposArquivo(body, upd){
@@ -254,7 +255,7 @@ async function gravarCliente(op, row, id){
     const { data, error } = await q.select().single();
     const m = error && String(error.message||'').match(/'([a-z_]+)' column|column "?([a-z_]+)"? (?:of relation|does not exist)/);
     const col = m && (m[1]||m[2]);
-    if (col && col in r && ['dia_cobranca','app','app_login','app_senha','apelido','nomes_terceiros','arquivado','arquivado_em','aparelhos','grupo'].includes(col)) { delete r[col]; continue; }
+    if (col && col in r && ['dia_cobranca','app','app_login','app_senha','apelido','nomes_terceiros','arquivado','arquivado_em','aparelhos','grupo','indicado_por'].includes(col)) { delete r[col]; continue; }
     return { data, error };
   }
   return { data:null, error:{ message:'falha ao gravar cliente' } };
@@ -640,6 +641,35 @@ export default async function handler(req, res) {
     if (c?.grupo) { const { data:rest } = await sb.from('clientes').select('id').eq('grupo',c.grupo); if ((rest||[]).length<2) await sb.from('clientes').update({ grupo:null }).eq('grupo',c.grupo); }
     return res.json({ ok:true });
   }
+  // Relatório de indicações: quem indicou quem, quantos estão ativos e quanto já pagaram
+  if (url === '/relatorios/indicacoes' && req.method === 'GET') {
+    const { data:cls, error } = await selectAll('clientes','*');
+    if (error) return err(res, error.message, 500);
+    if ((cls||[]).length && !('indicado_por' in cls[0])) return res.json({ falta_migracao:true, indicadores:[] });
+    const porId=new Map((cls||[]).map(c=>[c.id,c]));
+    const indicados=(cls||[]).filter(c=>c.indicado_por && porId.has(c.indicado_por));
+    const ids=indicados.map(c=>c.id);
+    const pago={};
+    for (let i=0;i<ids.length;i+=150) {
+      const lote=ids.slice(i,i+150);
+      const { data:movs } = await selectAll('movimentos_financeiros','cliente_id,valor_pago', q=>q.eq('status','pago').in('cliente_id',lote));
+      (movs||[]).forEach(m=>pago[m.cliente_id]=(pago[m.cliente_id]||0)+Number(m.valor_pago||0));
+    }
+    const grupos={};
+    for (const c of indicados) {
+      const g=grupos[c.indicado_por]||(grupos[c.indicado_por]={ id:c.indicado_por, nome:porId.get(c.indicado_por).nome,
+        status:porId.get(c.indicado_por).status, celular:porId.get(c.indicado_por).celular||'', indicados:[] });
+      g.indicados.push({ id:c.id, nome:c.nome, status:c.status, servidor:c.servidor||'', valor:Number(c.valor||0),
+        criado:c.criado, pago:Number((pago[c.id]||0).toFixed(2)) });
+    }
+    const lista=Object.values(grupos).map(g=>({ ...g,
+      total:g.indicados.length, ativos:g.indicados.filter(i=>i.status==='ativo').length,
+      mensal_ativos:Number(g.indicados.filter(i=>i.status==='ativo').reduce((s,i)=>s+i.valor,0).toFixed(2)),
+      total_pago:Number(g.indicados.reduce((s,i)=>s+i.pago,0).toFixed(2)),
+      indicados:g.indicados.sort((a,b)=>String(b.criado||'').localeCompare(String(a.criado||'')))
+    })).sort((a,b)=>b.ativos-a.ativos || b.total-a.total || a.nome.localeCompare(b.nome,'pt-BR'));
+    return res.json({ indicadores:lista, total_indicados:indicados.length });
+  }
   // Quantos clientes ativos / inativos (mostrado no topo de Clientes e Cobranças)
   if (url === '/clientes/contagem' && req.method === 'GET') {
     const { data, error } = await selectAll('clientes','status');
@@ -662,6 +692,7 @@ export default async function handler(req, res) {
       if (body.obs!==undefined)      upd.obs=body.obs||'';
       if (body.dia_cobranca!==undefined) upd.dia_cobranca=diaCobrancaOuNull(body.dia_cobranca, body.dia);
       camposApp(body, upd); camposExtras(body, upd); camposArquivo(body, upd);
+      if (upd.indicado_por===id) return err(res,'O cliente não pode indicar a si mesmo');
       // Acrescenta nomes terceiros sem apagar os que já existem (usado no pagamento)
       if (body.nomes_terceiros_add!==undefined) {
         const { data:atual } = await sb.from('clientes').select('*').eq('id',id).single();

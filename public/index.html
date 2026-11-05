@@ -845,8 +845,8 @@ tbody tr:hover td{background:var(--bg3)}
           </div>
         </div>
         <div class="fin-visao">
-          <button id="fv-caixa" onclick="finSetVisao('caixa')" title="Pela data em que o dinheiro entrou"><i class="ti ti-cash"></i> Caixa</button>
-          <button id="fv-comp" class="active" onclick="finSetVisao('competencia')" title="Pelo mês de referência da mensalidade"><i class="ti ti-calendar-month"></i> Competência</button>
+          <button id="fv-caixa" class="active" onclick="finSetVisao('caixa')" title="Pela data em que o dinheiro entrou"><i class="ti ti-cash"></i> Caixa</button>
+          <button id="fv-comp" onclick="finSetVisao('competencia')" title="Pelo mês de referência da mensalidade"><i class="ti ti-calendar-month"></i> Competência</button>
         </div>
       </div>
       <div id="fin-visao-ajuda" class="fin-ajuda"></div>
@@ -2309,7 +2309,7 @@ function finAnoAtualAte(){ return `${new Date().getFullYear()}-12`; }
 
 let _finCache = null;
 
-let finVisao='competencia';
+let finVisao='caixa';
 function finSetVisao(v){
   finVisao=v;
   document.getElementById('fv-caixa')?.classList.toggle('active',v==='caixa');
@@ -2475,11 +2475,13 @@ async function renderFinAba(){
         `<tr>${td('Total')}${td(sAt,1)}${td(sPg,1)}${td(sAt-sPg,1)}${caixa?td(cli,1):''}${td(fmtV(tot),1)}${td(cli?fmtV(tot/cli):'—',1)}</tr>`);
   }
   else if(finAba==='liquido'){
-    const tm=L.reduce((s,l)=>s+l.mensal,0), tdp=L.reduce((s,l)=>s+l.despesas,0);
-    html=head('Mensalidades menos despesas', 'Recebido bruto das mensalidades − despesas do mês. Não inclui outras receitas.')
-      +finBarras(L.map(l=>({rot:finMesCurto(l.mr),v:l.mensal-l.despesas,tip:`${fmtMesRef(l.mr)}\nRecebido: ${fmtV(l.mensal)}\nDespesas: ${fmtV(l.despesas)}\nLíquido: ${fmtV(l.mensal-l.despesas)}`})),'sinal')
-      +finTabela([{t:'Mês'},{t:'Recebido bruto',n:1},{t:'Despesas',n:1},{t:'Líquido',n:1},{t:'Margem',n:1}],
-        L.map(l=>{ const liq=l.mensal-l.despesas; return `<tr>${td(fmtMesRef(l.mr))}${td(fmtV(l.mensal),1)}${td(fmtV(l.despesas),1)}${td(fmtV(liq),1,`font-weight:600;color:var(${liq>=0?'--green':'--red'})`)}${td(l.mensal?fmtPct(liq/l.mensal):'—',1)}</tr>`; }),
+    // Aqui o recebido é sempre pela DATA DO PAGAMENTO (caixa): quem paga 1 ano entra todo no mês em que pagou
+    const rc=l=>Number(l.m.recebido||0);
+    const tm=L.reduce((s,l)=>s+rc(l),0), tdp=L.reduce((s,l)=>s+l.despesas,0);
+    html=head('Mensalidades menos despesas', 'Recebido = soma do que entrou no mês, pela data do pagamento (quem adianta vários meses conta tudo no mês em que pagou) − despesas do mês. Não inclui outras receitas.')
+      +finBarras(L.map(l=>({rot:finMesCurto(l.mr),v:rc(l)-l.despesas,tip:`${fmtMesRef(l.mr)}\nRecebido: ${fmtV(rc(l))}\nDespesas: ${fmtV(l.despesas)}\nLíquido: ${fmtV(rc(l)-l.despesas)}`})),'sinal')
+      +finTabela([{t:'Mês'},{t:'Recebido no mês',n:1},{t:'Despesas',n:1},{t:'Líquido',n:1},{t:'Margem',n:1}],
+        L.map(l=>{ const liq=rc(l)-l.despesas; return `<tr>${td(fmtMesRef(l.mr))}${td(fmtV(rc(l)),1)}${td(fmtV(l.despesas),1)}${td(fmtV(liq),1,`font-weight:600;color:var(${liq>=0?'--green':'--red'})`)}${td(rc(l)?fmtPct(liq/rc(l)):'—',1)}</tr>`; }),
         `<tr>${td('Total')}${td(fmtV(tm),1)}${td(fmtV(tdp),1)}${td(fmtV(tm-tdp),1,`color:var(${tm-tdp>=0?'--green':'--red'})`)}${td(tm?fmtPct((tm-tdp)/tm):'—',1)}</tr>`);
   }
   else if(finAba==='receitas'){

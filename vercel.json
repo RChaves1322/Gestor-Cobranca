@@ -1,15 +1,9 @@
 {
   "regions": [
-    "gru1"
+    "pdx1"
   ],
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/index.js"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/public/index.html"
-    }
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
+    { "source": "/(.*)", "destination": "/public/index.html" }
   ]
 }

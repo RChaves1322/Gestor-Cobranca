@@ -249,6 +249,7 @@ tbody tr:hover td{background:var(--bg3)}
 .pp-head{display:flex;justify-content:space-between;align-items:center;padding:.6rem .875rem;background:var(--bg3);font-size:12px;color:var(--muted)}
 .pp-row{display:grid;grid-template-columns:24px 1fr 100px auto;gap:10px;align-items:center;padding:.6rem .875rem;border-top:1px solid var(--border)}
 .pp-row.off{opacity:.55}
+.pp-conta{font-size:11px;color:var(--accent);font-weight:600;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pp-row > .btn{min-width:84px;justify-content:center}
 .pp-row input[type=checkbox]{width:17px;height:17px;cursor:pointer;accent-color:var(--accent)}
 .pp-ref{font-weight:600;font-size:13px}
@@ -1097,6 +1098,11 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="form-group full"><label class="form-label">TVs / aplicativos</label>
         <div id="f-devs"></div></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="f-obs" placeholder="Opcional"></div>
+      <div class="form-group full" id="f-vinc-grp" style="display:none"><label class="form-label">Contas vinculadas <span style="font-size:10px;color:var(--muted)">(mesmo cliente — paga junto; apelido, celular e terceiros ficam iguais)</span></label>
+        <div class="chips" id="f-vinc-chips"></div>
+        <div class="chip-add"><input id="f-vinc-in" list="f-vinc-dl" placeholder="Buscar outra conta deste cliente para vincular..." autocomplete="off">
+          <datalist id="f-vinc-dl"></datalist>
+          <button type="button" class="btn btn-sm" onclick="vincAdd()"><i class="ti ti-link"></i> Vincular</button></div></div>
       <div class="form-group full" id="f-pag-grp" style="display:none">
         <label class="nc-pag-chk"><input type="checkbox" id="f-pag-on" onchange="ncPagToggle()"><span><b>Já lançar pagamento</b><br><span style="color:var(--muted);font-size:12px">registra os meses pagos junto com o cadastro</span></span></label>
         <div id="f-pag-box" class="nc-pag" style="display:none">
@@ -1966,7 +1972,7 @@ async function renderClientes(){
           <th>Nome</th><th>Celular</th><th>Servidor</th>
           <th>Venc.</th><th>Valor</th><th>Status</th><th></th>
         </tr></thead><tbody>${lista.map(c=>`<tr>
-          <td style="font-weight:600">${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span>${(c.apelido||(c.nomes_terceiros||[]).length)?`<div class="ext-sub" style="font-weight:400">${c.apelido?`Apelido: ${escH(c.apelido)}`:''}${c.apelido&&(c.nomes_terceiros||[]).length?' · ':''}${(c.nomes_terceiros||[]).length?`Terceiros: ${c.nomes_terceiros.map(escH).join(', ')}`:''}</div>`:''}${devDoCliente(c).map(d=>`<div class="ext-sub" style="font-weight:400" title="${escH(d.login||'')}"><i class="ti ti-device-tv"></i> ${d.nome?escH(d.nome)+': ':''}${escH(d.app||'—')}${d.login?` · ${escH(d.login)}`:''}</div>`).join('')}</td>
+          <td style="font-weight:600">${c.grupo?'<i class="ti ti-link" title="Conta vinculada" style="color:var(--accent);margin-right:4px"></i>':''}${c.nome} &nbsp;<span class="badge badge-${c.status}">${c.status==='ativo'?'Ativo':'Inativo'}</span>${c.grupo&&lista.some(o=>o.grupo===c.grupo&&o.id!==c.id)?`<div class="ext-sub" style="font-weight:400;color:var(--accent)">Vinculada com: ${lista.filter(o=>o.grupo===c.grupo&&o.id!==c.id).map(o=>escH(o.nome)).join(', ')}</div>`:''}${(c.apelido||(c.nomes_terceiros||[]).length)?`<div class="ext-sub" style="font-weight:400">${c.apelido?`Apelido: ${escH(c.apelido)}`:''}${c.apelido&&(c.nomes_terceiros||[]).length?' · ':''}${(c.nomes_terceiros||[]).length?`Terceiros: ${c.nomes_terceiros.map(escH).join(', ')}`:''}</div>`:''}${devDoCliente(c).map(d=>`<div class="ext-sub" style="font-weight:400" title="${escH(d.login||'')}"><i class="ti ti-device-tv"></i> ${d.nome?escH(d.nome)+': ':''}${escH(d.app||'—')}${d.login?` · ${escH(d.login)}`:''}</div>`).join('')}</td>
           <td data-label="Celular">${c.celular||'—'}</td>
           <td data-label="Servidor">${c.servidor||'—'}</td>
           <td data-label="Venc.">Dia ${c.dia}${c.dia_cobranca&&c.dia_cobranca!==c.dia?`<div class="ext-sub" title="Dia de cobrança">cobra dia ${c.dia_cobranca}</div>`:''}</td>
@@ -2959,6 +2965,7 @@ async function openClienteModal(id){
       const c=todos.find(x=>x.id===id);
       if(!c){ toast('Cliente não encontrado','err'); return; }
       f('mc-title').textContent='Editar cliente';
+      vincCarregar(c, todos);
       f('f-pag-grp').style.display='none'; f('f-pag-on').checked=false;
       f('f-nome').value=c.nome;
       f('f-cel').value=c.celular||'';
@@ -2975,6 +2982,7 @@ async function openClienteModal(id){
     }catch(e){ toast('Erro ao carregar cliente','err'); return; }
   } else {
     f('mc-title').textContent='Novo cliente';
+    f('f-vinc-grp').style.display='none';
     f('f-pag-grp').style.display=''; f('f-pag-on').checked=false; f('f-pag-box').style.display='none';
     f('f-pag-mes').value=finMesAtual(); f('f-pag-qtd').value='1'; f('f-pag-data').value=hoje(); f('f-pag-valor').value='';
     f('f-nome').value='';
@@ -3096,6 +3104,40 @@ async function salvarCliente(){
   closeOv('ov-cliente');
   toast(editId?'Cliente atualizado!':pagos?`Cliente cadastrado e ${pagos} mês(es) pago(s)!`:'Cliente cadastrado!');
   renderClientes(); atualizarContagemAtivos();
+}
+
+/* Contas vinculadas no cadastro (editar) */
+let _vinc={id:null,lista:[],todos:[]};
+async function vincCarregar(c, todos){
+  _vinc={id:c.id,lista:[],todos:todos||[]};
+  document.getElementById('f-vinc-grp').style.display='';
+  document.getElementById('f-vinc-in').value='';
+  document.getElementById('f-vinc-dl').innerHTML=_vinc.todos.filter(x=>x.id!==c.id).map(x=>`<option value="${escH(x.nome)}">`).join('');
+  try{ _vinc.lista=(await api('GET',`/api/clientes/${c.id}/vinculados`)).filter(x=>x.id!==c.id); }catch{ _vinc.lista=[]; }
+  vincRender();
+}
+function vincRender(){
+  document.getElementById('f-vinc-chips').innerHTML=_vinc.lista.map(x=>
+    `<span class="chip"><i class="ti ti-link" style="font-size:12px"></i> ${escH(x.nome)} <span style="color:var(--muted);font-size:11px">${escH(x.servidor||'')}</span><button type="button" title="Desvincular" onclick="vincDel('${x.id}')">×</button></span>`).join('')
+    || '<span style="font-size:12px;color:var(--muted)">Nenhuma conta vinculada.</span>';
+}
+async function vincAdd(){
+  const nome=document.getElementById('f-vinc-in').value.trim();
+  const alvo=_vinc.todos.find(x=>x.nome===nome && x.id!==_vinc.id);
+  if(!alvo){ toast('Escolha a conta na lista de sugestões','err'); return; }
+  if(!confirm(`Vincular "${alvo.nome}" a este cliente?\n\nO pagamento das duas poderá ser feito de uma vez, e apelido, celular e nomes terceiros ficam iguais nas duas contas.`)) return;
+  try{
+    await api('POST','/api/clientes/vincular',{ids:[_vinc.id,alvo.id]});
+    toast('Contas vinculadas!');
+    _vinc.lista=(await api('GET',`/api/clientes/${_vinc.id}/vinculados`)).filter(x=>x.id!==_vinc.id);
+    document.getElementById('f-vinc-in').value=''; vincRender(); renderClientes();
+  }catch(e){ let m='Erro ao vincular'; try{m=JSON.parse(e.message).erro||m;}catch{} toast(m,'err'); }
+}
+async function vincDel(id){
+  const x=_vinc.lista.find(v=>v.id===id); if(!x) return;
+  if(!confirm(`Desvincular "${x.nome}"? As duas contas voltam a ser independentes.`)) return;
+  try{ await api('POST',`/api/clientes/${id}/desvincular`); _vinc.lista=_vinc.lista.filter(v=>v.id!==id); vincRender(); renderClientes(); toast('Conta desvinculada.'); }
+  catch{ toast('Erro ao desvincular','err'); }
 }
 
 /* Pagamento no cadastro do cliente novo */
@@ -3717,7 +3759,7 @@ function normTel(v){ let d=String(v||'').replace(/\D/g,''); if(d.length>11 && d.
 // do cliente para escolher quais acertar, com opção de anular alguma.
 let _pag={parcelas:[],clienteId:null,clicada:null};
 async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
-  _pag={parcelas:[],clienteId:clienteId||null,clicada:id,cliente:null,tercIni:[],ini:null};
+  _pag={parcelas:[],clienteId:clienteId||null,clicada:id,cliente:null,tercIni:[],ini:null,contas:[],hists:{}};
   _terc.p=[]; chipRender('p'); document.getElementById('p-terc-in').value='';
   const $p=x=>document.getElementById(x);
   $p('p-nome-in').value=nome; $p('p-apelido').value=''; $p('p-cel').value=''; $p('p-dia').value=''; $p('p-dia-cob').value='';
@@ -3745,22 +3787,34 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
   document.getElementById('p-valor').value=parseFloat(valor).toFixed(2);
   document.getElementById('p-obs').value='';
   // Parcela clicada sempre entra; as demais vêm do histórico do cliente
-  let abertas=[{id,vencimento:venc,mes_ref:ref,valor:Number(valor),status:'pendente'}];
+  // (e das contas vinculadas a ele — mesmo cliente pagando várias contas)
+  let abertas=[{id,vencimento:venc,mes_ref:ref,valor:Number(valor),status:'pendente',cliente_id:clienteId}];
   document.getElementById('p-6m').innerHTML='';
   if(clienteId){
     try{
       const hist=await api('GET',`/api/clientes/${clienteId}/historico`);
-      _pag.hist=hist;
+      _pag.hist=hist; _pag.hists[clienteId]=hist;
       document.getElementById('p-6m').innerHTML=resumo6Meses(hist,`abrirHist('${clienteId}','${esc(nome)}')`);
-      const ab=hist.filter(h=>h.status==='pendente'||h.status==='vencido');
+      const ab=hist.filter(h=>h.status==='pendente'||h.status==='vencido').map(h=>({...h,cliente_id:clienteId}));
       if(ab.some(h=>h.id===id)) abertas=ab;
     }catch(e){}
+    try{
+      const vinc=(await api('GET',`/api/clientes/${clienteId}/vinculados`)).filter(c=>c.id!==clienteId);
+      _pag.contas=[_pag.cliente||{id:clienteId,nome}, ...vinc];
+      for(const c of vinc){
+        const h=await api('GET',`/api/clientes/${c.id}/historico`); _pag.hists[c.id]=h;
+        abertas.push(...h.filter(x=>x.status==='pendente'||x.status==='vencido').map(x=>({...x,cliente_id:c.id,conta:c.nome})));
+      }
+    }catch(e){}
   }
-  abertas.sort((x,y)=>String(x.vencimento||'').localeCompare(String(y.vencimento||'')));
-  // Já vem marcado da parcela mais antiga em atraso até a que foi clicada (dá para desmarcar)
-  const vencClicada=String((abertas.find(h=>h.id===id)||{}).vencimento||venc||'');
+  const multiConta=_pag.contas.length>1;
+  if(multiConta) abertas.forEach(a=>{ if(!a.conta) a.conta=(_pag.contas.find(c=>c.id===a.cliente_id)||{}).nome||nome; });
+  abertas.sort((x,y)=>String(x.mes_ref||x.vencimento||'').localeCompare(String(y.mes_ref||y.vencimento||'')) || String(x.conta||'').localeCompare(String(y.conta||'')));
+  // Já vem marcado da parcela mais antiga em atraso até o mês da que foi clicada (dá para desmarcar)
+  const refClicada=String((abertas.find(h=>h.id===id)||{}).mes_ref||ref||String(venc||'').slice(0,7));
   _pag.parcelas=abertas.map(h=>({id:h.id,vencimento:h.vencimento,mes_ref:h.mes_ref,status:h.status,valor:Number(h.valor||0),
-    pagar:h.id===id || String(h.vencimento||'')<=vencClicada, valorPago:Number(h.valor||0)}));
+    cliente_id:h.cliente_id, conta:multiConta?h.conta:null,
+    pagar:h.id===id || String(h.mes_ref||String(h.vencimento||'').slice(0,7))<=refClicada, valorPago:Number(h.valor||0)}));
   renderPagParcelas();
   // Carregar servidores no select e pré-selecionar o atual
   try{
@@ -3797,7 +3851,7 @@ function renderPagParcelas(){
     ${_pag.parcelas.map((p,i)=>`
       <div class="pp-row${p.pagar?'':' off'}">
         <input type="checkbox" ${p.pagar?'checked':''} onchange="pagToggle(${i},this.checked)">
-        <div><div class="pp-ref">${fmtMesRef(p.mes_ref)} ${p.futuro?'<span class="badge" style="margin-left:6px;background:var(--purple-bg);color:var(--purple)">Adiantado</span>':`<span class="badge badge-${p.status}" style="margin-left:6px">${LBL[p.status]}</span>`}</div>
+        <div>${p.conta?`<div class="pp-conta"><i class="ti ti-link"></i> ${escH(p.conta)}</div>`:''}<div class="pp-ref">${fmtMesRef(p.mes_ref)} ${p.futuro?'<span class="badge" style="margin-left:6px;background:var(--purple-bg);color:var(--purple)">Adiantado</span>':`<span class="badge badge-${p.status}" style="margin-left:6px">${LBL[p.status]}</span>`}</div>
           <div class="pp-sub">${p.futuro?'Ainda sem cobrança — será criada já paga':'Venc. '+fmtD(p.vencimento)} · ${fmtV(p.valor)}</div></div>
         <input type="number" step="0.01" value="${Number(p.valorPago).toFixed(2)}" ${p.pagar?'':'disabled'} oninput="pagValor(${i},this.value)" title="Valor recebido">
         ${p.futuro?`<button class="btn btn-sm" onclick="_pag.parcelas.splice(${i},1);renderPagParcelas()" title="Tirar este mês"><i class="ti ti-x"></i> Tirar</button>`
@@ -3806,18 +3860,25 @@ function renderPagParcelas(){
     <div class="pp-total"><span>Total a receber (${sel.length})</span><span style="color:var(--green)" id="p-total">${fmtV(total)}</span></div>`;
 }
 // Próximo mês que o cliente ainda não pagou e que não está na lista
-function pagProximoMes(){
-  const ocupados=new Set([...(_pag.hist||[]).filter(h=>h.status==='pago').map(h=>h.mes_ref), ..._pag.parcelas.map(p=>p.mes_ref)].filter(Boolean));
-  const base=[..._pag.parcelas.map(p=>p.mes_ref), ...(_pag.hist||[]).filter(h=>h.status!=='cancelado').map(h=>h.mes_ref)].filter(Boolean).sort().at(-1) || finMesAtual();
+function pagProximoMes(cid){
+  cid=cid||_pag.clienteId;
+  const hist=(_pag.hists&&_pag.hists[cid])||_pag.hist||[];
+  const minhas=_pag.parcelas.filter(p=>!p.cliente_id||p.cliente_id===cid);
+  const ocupados=new Set([...hist.filter(h=>h.status==='pago').map(h=>h.mes_ref), ...minhas.map(p=>p.mes_ref)].filter(Boolean));
+  const base=[...minhas.map(p=>p.mes_ref), ...hist.filter(h=>h.status!=='cancelado').map(h=>h.mes_ref)].filter(Boolean).sort().at(-1) || finMesAtual();
   let mr=base;
   for(let i=0;i<24;i++){ mr=finSomarMeses(mr,1); if(!ocupados.has(mr)) return mr; }
   return null;
 }
 function pagAddMes(){
-  const mr=pagProximoMes(); if(!mr) return;
-  const c=_pag.cliente||{}, valor=Number(c.valor||_pag.parcelas[0]?.valor||0);
-  const [a,m]=mr.split('-').map(Number), dia=Math.min(parseInt(c.dia)||1, new Date(a,m,0).getDate());
-  _pag.parcelas.push({id:null, futuro:true, mes_ref:mr, vencimento:`${mr}-${pad(dia)}`, status:'pendente', valor, valorPago:valor, pagar:true});
+  // Com contas vinculadas, adianta o próximo mês de cada conta
+  const contas=_pag.contas&&_pag.contas.length>1?_pag.contas:[_pag.cliente||{id:_pag.clienteId}];
+  for(const c of contas){
+    const mr=pagProximoMes(c.id); if(!mr) continue;
+    const valor=Number(c.valor||_pag.parcelas[0]?.valor||0);
+    const [a,m]=mr.split('-').map(Number), dia=Math.min(parseInt(c.dia)||1, new Date(a,m,0).getDate());
+    _pag.parcelas.push({id:null, futuro:true, cliente_id:c.id, conta:contas.length>1?c.nome:null, mes_ref:mr, vencimento:`${mr}-${pad(dia)}`, status:'pendente', valor, valorPago:valor, pagar:true});
+  }
   renderPagParcelas();
   const el=document.getElementById('ov-pagamento'); if(el) el.dataset.alterado='1';
 }
@@ -3859,7 +3920,7 @@ async function confirmarPag(){
   const obs_pagamento=document.getElementById('p-obs').value;
   let itens;
   if(_pag.parcelas.length>1){
-    itens=_pag.parcelas.filter(p=>p.pagar).map(p=>({id:p.id,mes_ref:p.mes_ref,futuro:!!p.futuro,valor_pago:parseFloat(p.valorPago)}));
+    itens=_pag.parcelas.filter(p=>p.pagar).map(p=>({id:p.id,mes_ref:p.mes_ref,futuro:!!p.futuro,cliente_id:p.cliente_id,valor_pago:parseFloat(p.valorPago)}));
     if(!itens.length){toast('Marque ao menos uma parcela','err');return;}
   }else{
     itens=[{id:document.getElementById('p-id').value,valor_pago:parseFloat(document.getElementById('p-valor').value)}];
@@ -3892,8 +3953,10 @@ async function confirmarPag(){
   let ok=0;
   try{
     for(const it of itens){
-      if(it.futuro) await api('POST','/api/cobrancas/pagar-mes',{cliente_id:_pag.clienteId,mes_ref:it.mes_ref,pago_em,valor_pago:it.valor_pago,obs_pagamento});
-      else await api('PUT',`/api/cobrancas/${it.id}/pagar`,{pago_em,valor_pago:it.valor_pago,obs_pagamento,servidor_novo});
+      if(it.futuro) await api('POST','/api/cobrancas/pagar-mes',{cliente_id:it.cliente_id||_pag.clienteId,mes_ref:it.mes_ref,pago_em,valor_pago:it.valor_pago,obs_pagamento});
+      else await api('PUT',`/api/cobrancas/${it.id}/pagar`,{pago_em,valor_pago:it.valor_pago,obs_pagamento,
+        // servidor escolhido vale só para a conta aberta, não para as vinculadas
+        servidor_novo:(!it.cliente_id||it.cliente_id===_pag.clienteId)?servidor_novo:''});
       ok++;
     }
     closeOv('ov-pagamento');

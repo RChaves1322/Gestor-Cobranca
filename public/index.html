@@ -3757,7 +3757,10 @@ async function abrirPag(id,nome,serv,venc,ref,valor,clienteId){
     }catch(e){}
   }
   abertas.sort((x,y)=>String(x.vencimento||'').localeCompare(String(y.vencimento||'')));
-  _pag.parcelas=abertas.map(h=>({id:h.id,vencimento:h.vencimento,mes_ref:h.mes_ref,status:h.status,valor:Number(h.valor||0),pagar:h.id===id,valorPago:Number(h.valor||0)}));
+  // Já vem marcado da parcela mais antiga em atraso até a que foi clicada (dá para desmarcar)
+  const vencClicada=String((abertas.find(h=>h.id===id)||{}).vencimento||venc||'');
+  _pag.parcelas=abertas.map(h=>({id:h.id,vencimento:h.vencimento,mes_ref:h.mes_ref,status:h.status,valor:Number(h.valor||0),
+    pagar:h.id===id || String(h.vencimento||'')<=vencClicada, valorPago:Number(h.valor||0)}));
   renderPagParcelas();
   // Carregar servidores no select e pré-selecionar o atual
   try{

@@ -584,8 +584,9 @@ export default async function handler(req, res) {
     await comLancado({});
     const colsMov='id,cliente_id,cliente_nome,servidor,mes_ref,pago_em,valor_pago,origem,obs_pagamento'+(_temLancado?',lancado_em':'');
     const reqs=[
-      sb.from('movimentos_financeiros').select(colsMov).eq('status','pago').not('pago_em','is',null).order('pago_em',{ascending:false}).limit(lim),
-      _temLancado ? sb.from('movimentos_financeiros').select(colsMov).eq('status','pago').not('lancado_em','is',null).order('lancado_em',{ascending:false}).limit(lim) : Promise.resolve({data:[]}),
+      // busca a mais porque vários meses pagos juntos viram uma linha só
+      sb.from('movimentos_financeiros').select(colsMov).eq('status','pago').not('pago_em','is',null).order('pago_em',{ascending:false}).limit(lim*4),
+      _temLancado ? sb.from('movimentos_financeiros').select(colsMov).eq('status','pago').not('lancado_em','is',null).order('lancado_em',{ascending:false}).limit(lim*4) : Promise.resolve({data:[]}),
       sb.from('outras_vendas').select('id,data,tipo_rec,cliente,produto,total,criado').order('criado',{ascending:false}).limit(lim),
       sb.from('despesas').select('id,data,tipo,responsavel,descricao,total,criado').order('criado',{ascending:false}).limit(lim),
       tabelaOpcional('extrato_lancamentos','data,criado', q=>q.order('data',{ascending:false}).limit(1))
@@ -593,10 +594,29 @@ export default async function handler(req, res) {
     const [a,b,ov,dp,ex]=await Promise.all(reqs);
     const movs=new Map(); [...(a.data||[]),...(b.data||[])].forEach(m=>movs.set(m.id,m));
     const ORIG={extrato:'Extrato', pagamento_manual:'Manual', geracao_mensal:'Manual', importacao_planilha:'Planilha', importacao_historico:'Planilha'};
+    // Mesmo cliente pagando vários meses na mesma data = uma linha só, com o total
+    const MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const rotMes=mr=>{ const [a,m]=String(mr||'').split('-'); return a&&m?`${MES[parseInt(m)-1]}/${a.slice(2)}`:''; };
+    const gruposMens=new Map();
+    for (const m of movs.values()) {
+      if (String(m.origem||'').startsWith('importacao')) continue;
+      const k=`${m.cliente_id}|${m.pago_em}`;
+      const g=gruposMens.get(k);
+      if (!g) gruposMens.set(k,{ ...m, _meses:[m.mes_ref].filter(Boolean), _valor:Number(m.valor_pago||0), _bonus:Number(m.valor_pago||0)===0?1:0, _qtd:1 });
+      else {
+        g._qtd++; g._valor+=Number(m.valor_pago||0); if (Number(m.valor_pago||0)===0) g._bonus++;
+        if (m.mes_ref) g._meses.push(m.mes_ref);
+        if (m.lancado_em && (!g.lancado_em || String(m.lancado_em)>String(g.lancado_em))) g.lancado_em=m.lancado_em;
+      }
+    }
     const itens=[
-      ...[...movs.values()].filter(m=>!String(m.origem||'').startsWith('importacao')).map(m=>({ tipo:'mensalidade', id:m.id, cliente_id:m.cliente_id,
-        titulo:m.cliente_nome, detalhe:`Mensalidade ${m.mes_ref||''}${m.servidor?' · '+m.servidor:''}`, data:m.pago_em,
-        lancado_em:m.lancado_em||null, valor:Number(m.valor_pago||0), origem:ORIG[m.origem]||'Manual' })),
+      ...[...gruposMens.values()].map(m=>{
+        const ms=[...new Set(m._meses)].sort();
+        const meses=ms.length>1 ? `${ms.length} mensalidades: ${ms.length===2?ms.map(rotMes).join(' e '):rotMes(ms[0])+' a '+rotMes(ms.at(-1))}` : `Mensalidade ${ms[0]||''}`;
+        return { tipo:'mensalidade', id:m.id, cliente_id:m.cliente_id, qtd:m._qtd, meses:ms, bonus:m._bonus,
+          titulo:m.cliente_nome, detalhe:`${meses}${m._bonus?` (${m._bonus} bônus)`:''}${m.servidor?' · '+m.servidor:''}`, data:m.pago_em,
+          lancado_em:m.lancado_em||null, valor:Number(m._valor.toFixed(2)), origem:ORIG[m.origem]||'Manual' };
+      }),
       ...(ov.data||[]).map(r=>({ tipo:'receita', id:r.id, titulo:r.cliente, detalhe:`${r.tipo_rec}${r.produto?' · '+r.produto:''}`,
         data:r.data, lancado_em:r.criado, valor:Number(r.total||0), origem:'Receita' })),
       ...(dp.data||[]).map(r=>({ tipo:'despesa', id:r.id, titulo:r.descricao||r.tipo, detalhe:`${r.tipo}${r.responsavel?' · '+r.responsavel:''}`,

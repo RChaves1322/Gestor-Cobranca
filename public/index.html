@@ -3931,7 +3931,7 @@ async function abrirUltimos(){
   document.getElementById('ul-resumo').innerHTML='';
   openOv('ov-ultimos');
   try{
-    const r=await api('GET','/api/lancamentos/recentes?limite=120');
+    const r=await api('GET','/api/lancamentos/recentes?limite=20');
     _ul.itens=r.itens||[]; _ul.info=r;
     const ultLanc=_ul.itens.find(i=>i.tipo==='mensalidade');
     document.getElementById('ul-resumo').innerHTML=`

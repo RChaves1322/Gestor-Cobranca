@@ -126,6 +126,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .campo-erro-msg{color:var(--red);font-size:11px;margin-top:4px}
 .nc-pag-chk{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;padding:.6rem .75rem;border:1px dashed var(--border);border-radius:var(--radius-sm)}
 .nc-pag-chk input{width:17px;height:17px;accent-color:var(--green)}
+.cad-modal{max-width:1080px!important;padding:1.25rem 1.5rem!important}
+.cad-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1.25rem;align-items:start}
+.cad-col{gap:.55rem .8rem!important;align-content:start}.cad-col .form-group{margin-bottom:0}
+.cad-modal .form-actions{margin-top:1rem;padding-top:.9rem}
+.vinc-nova{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) 90px auto;gap:6px;align-items:center;margin-top:6px;padding:6px;border:1px dashed var(--accent);border-radius:var(--radius-sm)}
+@media(max-width:900px){.cad-cols{grid-template-columns:1fr}.vinc-nova{grid-template-columns:1fr 1fr}}
 .nc-pag{margin-top:8px;padding:.75rem;border:1px solid var(--green);border-radius:var(--radius-sm);background:var(--green-bg)}
 .topbar-sub{font-size:12px;font-weight:500;color:var(--muted);margin-left:8px;white-space:nowrap}
 .topbar-sub b{color:var(--green)}
@@ -245,6 +251,19 @@ tbody tr:hover td{background:var(--bg3)}
 .pag-cli input#p-cel:placeholder-shown{border-color:var(--amber)}
 @media(max-width:600px){.pag-cli{grid-template-columns:1fr}}
 #ov-pagamento .modal.multi{max-width:660px}
+/* Pagamento em duas colunas: dados do cliente | recebimento (cabe sem rolar) */
+#ov-pagamento .modal.pag-modal{max-width:1120px;padding:1.25rem 1.5rem}
+#ov-pagamento .pag-modal .modal-title{margin-bottom:.9rem}
+.pag-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:1.25rem;align-items:start}
+.pag-col-esq .pag-info{margin-bottom:.75rem}
+.pag-esq-grid{gap:.6rem .8rem}.pag-esq-grid .form-group{margin-bottom:0}
+.pag-col-dir .m6{margin-bottom:.75rem}
+.pag-col-dir .form-grid{gap:.6rem .8rem}
+.pag-col-dir .form-group{margin-bottom:0}
+.pag-col-dir .form-actions{margin-top:.9rem;padding-top:.9rem}
+.pag-col-dir #p-add-mes{margin:.25rem 0 .75rem!important}
+.pag-col-dir .pp-wrap{max-height:34vh;overflow-y:auto}
+@media(max-width:900px){.pag-cols{grid-template-columns:1fr}#ov-pagamento .modal.pag-modal{max-width:100%}}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 .chips:empty{display:none}
 .chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:99px;padding:3px 6px 3px 11px;font-size:12px}
@@ -1088,10 +1107,11 @@ tbody tr:hover td{background:var(--bg3)}
 
 <!-- Modal Cliente -->
 <div class="overlay" id="ov-cliente">
-  <div class="modal">
+  <div class="modal cad-modal">
     <button class="close-btn" onclick="closeOv('ov-cliente')"><i class="ti ti-x"></i></button>
     <div class="modal-title" id="mc-title">Novo cliente</div>
-    <div class="form-grid">
+    <div class="cad-cols">
+    <div class="form-grid cad-col">
       <div class="form-group full"><label class="form-label">Nome no servidor *</label><input id="f-nome" placeholder="Usuário do cliente na plataforma (ex.: AnaPaula977)"></div>
       <div class="form-group full"><label class="form-label">Nomes terceiros <span style="font-size:10px;color:var(--muted)">(contas que pagam por este cliente)</span></label>
         <div class="chips" id="f-terc-chips"></div>
@@ -1108,19 +1128,23 @@ tbody tr:hover td{background:var(--bg3)}
         <div class="form-hint">Deixe vazio para cobrar no mesmo dia do vencimento.</div></div>
       <div class="form-group"><label class="form-label">Valor (R$) *</label><input id="f-valor" type="number" step="0.01" placeholder="0,00"></div>
       <div class="form-group"><label class="form-label">Status</label><select id="f-status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></div>
-      <div class="form-group full"><label class="form-label">TVs / aplicativos</label>
-        <div id="f-devs"></div></div>
       <div class="form-group full"><label class="form-label">Indicado por <span style="font-size:10px;color:var(--muted)">(cliente já cadastrado que fez a indicação)</span></label>
         <div class="chip-add"><input id="f-indic" list="f-indic-dl" placeholder="Opcional — digite para buscar o cliente..." autocomplete="off" oninput="indicEscolha()">
           <datalist id="f-indic-dl"></datalist>
           <button type="button" class="btn btn-sm" onclick="indicLimpar()" title="Remover indicação"><i class="ti ti-x"></i></button></div>
         <div class="form-hint" id="f-indic-hint"></div></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="f-obs" placeholder="Opcional"></div>
-      <div class="form-group full" id="f-vinc-grp" style="display:none"><label class="form-label">Contas vinculadas <span style="font-size:10px;color:var(--muted)">(mesmo cliente — paga junto; apelido, celular e terceiros ficam iguais)</span></label>
+    </div>
+    <div class="form-grid cad-col">
+      <div class="form-group full"><label class="form-label">TVs / aplicativos</label>
+        <div id="f-devs"></div></div>
+      <div class="form-group full" id="f-vinc-grp"><label class="form-label">Contas vinculadas <span style="font-size:10px;color:var(--muted)">(mesmo cliente — paga junto; apelido, celular e terceiros ficam iguais)</span></label>
         <div class="chips" id="f-vinc-chips"></div>
-        <div class="chip-add"><input id="f-vinc-in" list="f-vinc-dl" placeholder="Buscar outra conta deste cliente para vincular..." autocomplete="off">
+        <div class="chip-add"><input id="f-vinc-in" list="f-vinc-dl" placeholder="Buscar conta já cadastrada para vincular..." autocomplete="off">
           <datalist id="f-vinc-dl"></datalist>
-          <button type="button" class="btn btn-sm" onclick="vincAdd()"><i class="ti ti-link"></i> Vincular</button></div></div>
+          <button type="button" class="btn btn-sm" onclick="vincAdd()"><i class="ti ti-link"></i> Vincular</button></div>
+        <div id="f-vinc-novas"></div>
+        <button type="button" class="btn btn-sm" style="margin-top:6px" onclick="vincDuplicar()" title="A conta ainda não existe: cria uma cópia deste cadastro com outro usuário, já vinculada"><i class="ti ti-copy"></i> Duplicar esta conta (outro usuário)</button></div>
       <div class="form-group full" id="f-pag-grp" style="display:none">
         <label class="nc-pag-chk"><input type="checkbox" id="f-pag-on" onchange="ncPagToggle()"><span><b>Já lançar pagamento</b><br><span style="color:var(--muted);font-size:12px">registra os meses pagos junto com o cadastro</span></span></label>
         <div id="f-pag-box" class="nc-pag" style="display:none">
@@ -1134,6 +1158,7 @@ tbody tr:hover td{background:var(--bg3)}
         </div>
       </div>
     </div>
+    </div>
     <div class="form-actions">
       <button class="btn" onclick="closeOv('ov-cliente')">Cancelar</button>
       <button class="btn btn-primary" onclick="salvarCliente()"><i class="ti ti-check"></i> Salvar</button>
@@ -1144,9 +1169,11 @@ tbody tr:hover td{background:var(--bg3)}
 
 <!-- Modal Pagamento -->
 <div class="overlay" id="ov-pagamento">
-  <div class="modal">
+  <div class="modal pag-modal">
     <button class="close-btn" onclick="closeOv('ov-pagamento')"><i class="ti ti-x"></i></button>
     <div class="modal-title">Confirmar pagamento</div>
+    <div class="pag-cols">
+    <div class="pag-col-esq">
     <div class="pag-info">
       <div class="pag-cli">
         <div class="pag-cli-full"><label class="form-label">Nome no servidor</label><input id="p-nome-in" autocomplete="off" placeholder="Ex.: AnaPaula977"></div>
@@ -1161,20 +1188,26 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="pag-info-sub" style="margin-top:8px"><span id="p-serv"></span> · alterações acima ficam salvas no cadastro ao confirmar</div>
       <div class="pag-info-sub" id="p-ref" style="margin-top:3px"></div>
     </div>
+    <div class="form-grid pag-esq-grid">
+      <div class="form-group"><label class="form-label">Dia de vencimento da lista</label><input type="number" min="1" max="31" id="p-dia" placeholder="1–31"></div>
+      <div class="form-group"><label class="form-label">Dia de cobrança</label><input type="number" min="1" max="31" id="p-dia-cob" placeholder="Mesmo do vencimento"></div>
+      <div class="form-group full"><label class="form-label">Servidor <span style="font-size:10px;color:var(--muted)">(alterar atualiza o cadastro do cliente)</span></label><select id="p-servidor"></select></div>
+    </div>
+    </div>
+    <div class="pag-col-dir">
     <div id="p-6m"></div>
     <div class="pp-wrap" id="p-parcelas" style="display:none"></div>
     <div id="p-add-mes" style="margin:-.5rem 0 1.25rem"></div>
     <div class="form-grid">
       <div class="form-group" id="p-data-grp"><label class="form-label">Data do pagamento *</label><input type="date" id="p-data"></div>
       <div class="form-group" id="p-valor-grp"><label class="form-label">Valor recebido (R$) *</label><input type="number" step="0.01" id="p-valor"></div>
-      <div class="form-group"><label class="form-label">Dia de vencimento da lista</label><input type="number" min="1" max="31" id="p-dia" placeholder="1–31"></div>
-      <div class="form-group"><label class="form-label">Dia de cobrança</label><input type="number" min="1" max="31" id="p-dia-cob" placeholder="Mesmo do vencimento"></div>
-      <div class="form-group full"><label class="form-label">Servidor <span style="font-size:10px;color:var(--muted)">(alterar atualiza o cadastro do cliente)</span></label><select id="p-servidor"></select></div>
       <div class="form-group full"><label class="form-label">Observações</label><input id="p-obs" placeholder="Opcional"></div>
     </div>
     <div class="form-actions">
       <button class="btn" onclick="closeOv('ov-pagamento')">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarPag()"><i class="ti ti-check"></i> Confirmar pagamento</button>
+    </div>
+    </div>
     </div>
     <input type="hidden" id="p-id">
   </div>
@@ -3048,7 +3081,7 @@ async function openClienteModal(id){
     }catch(e){ toast('Erro ao carregar cliente','err'); return; }
   } else {
     f('mc-title').textContent='Novo cliente';
-    f('f-vinc-grp').style.display='none';
+    vincCarregar(null, _todosCli);
     f('f-pag-grp').style.display=''; f('f-pag-on').checked=false; f('f-pag-box').style.display='none';
     f('f-pag-mes').value=finMesAtual(); f('f-pag-qtd').value='1'; f('f-pag-data').value=hoje(); f('f-pag-valor').value='';
     f('f-nome').value='';
@@ -3236,6 +3269,14 @@ async function salvarCliente(){
   if(g('f-indic') && !_indic.id){ toast('Indicação: escolha um cliente cadastrado da lista (ou deixe vazio)','err'); return; }
   if(_indic.id || editId) body.indicado_por=_indic.id||null;
 
+  // Contas duplicadas: confere os usuários
+  vincNovasLer();
+  for(const n of _vinc.novas){
+    n.nome=String(n.nome||'').replace(/\s+/g,' ').trim();
+    if(!n.nome){ toast('Informe o usuário da conta duplicada','err'); return; }
+    if(n.nome.toLowerCase()===nome.toLowerCase()){ toast('A conta duplicada precisa de outro usuário','err'); return; }
+    if(!n.servidor){ toast(`Escolha o servidor da conta ${n.nome}`,'err'); return; }
+  }
   // Pagamento junto com o cadastro (só cliente novo)
   const pag=!editId && document.getElementById('f-pag-on').checked ? ncPagDados(body.valor) : null;
   if(pag && pag.erro){ toast(pag.erro,'err'); return; }
@@ -3260,30 +3301,81 @@ async function salvarCliente(){
       toast(`Cliente cadastrado, mas só ${pagos} de ${pag.meses.length} mês(es) foram lançados. Confira em Cobranças.`,'err'); return;
     }
   }
+  // Contas vinculadas escolhidas no cadastro e contas duplicadas
+  const idPrincipal=editId||(novo&&novo.id);
+  let vincMsg='';
+  if(idPrincipal && (_vinc.pend.length || _vinc.novas.length)){
+    const ids=[..._vinc.pend.map(x=>x.id)]; let criadas=0;
+    try{
+      for(const n of _vinc.novas){
+        const dup=await api('POST','/api/clientes',{...body, nome:n.nome, servidor:n.servidor,
+          valor:isNaN(parseFloat(n.valor))?body.valor:parseFloat(n.valor), aparelhos:[]});
+        if(dup&&dup.id){ ids.push(dup.id); criadas++; }
+      }
+      if(ids.length) await api('POST','/api/clientes/vincular',{ids:[idPrincipal,...ids]});
+      vincMsg=` ${ids.length} conta(s) vinculada(s)${criadas?` (${criadas} nova(s))`:''}.`;
+    }catch(e){
+      let m=''; try{m=JSON.parse(e.message).erro||'';}catch{}
+      closeOv('ov-cliente'); renderClientes(); atualizarContagemAtivos();
+      toast(`Cliente salvo, mas houve erro ao criar/vincular as contas${criadas?` (${criadas} criada(s))`:''}. ${m}`,'err'); return;
+    }
+  }
   closeOv('ov-cliente');
-  toast(editId?'Cliente atualizado!':pagos?`Cliente cadastrado e ${pagos} mês(es) pago(s)!`:'Cliente cadastrado!');
+  toast((editId?'Cliente atualizado!':pagos?`Cliente cadastrado e ${pagos} mês(es) pago(s)!`:'Cliente cadastrado!')+vincMsg);
   renderClientes(); atualizarContagemAtivos();
 }
 
 /* Contas vinculadas no cadastro (editar) */
-let _vinc={id:null,lista:[],todos:[]};
+// pend = contas já cadastradas escolhidas no cadastro novo (vinculam ao salvar)
+// novas = contas duplicadas (criadas e vinculadas ao salvar)
+let _vinc={id:null,lista:[],todos:[],pend:[],novas:[]};
 async function vincCarregar(c, todos){
-  _vinc={id:c.id,lista:[],todos:todos||[]};
+  _vinc={id:c?c.id:null,lista:[],todos:todos||[],pend:[],novas:[]};
   document.getElementById('f-vinc-grp').style.display='';
   document.getElementById('f-vinc-in').value='';
-  document.getElementById('f-vinc-dl').innerHTML=_vinc.todos.filter(x=>x.id!==c.id).map(x=>`<option value="${escH(x.nome)}">`).join('');
-  try{ _vinc.lista=(await api('GET',`/api/clientes/${c.id}/vinculados`)).filter(x=>x.id!==c.id); }catch{ _vinc.lista=[]; }
-  vincRender();
+  document.getElementById('f-vinc-dl').innerHTML=_vinc.todos.filter(x=>!c||x.id!==c.id).map(x=>`<option value="${escH(x.nome)}">`).join('');
+  if(c){ try{ _vinc.lista=(await api('GET',`/api/clientes/${c.id}/vinculados`)).filter(x=>x.id!==c.id); }catch{ _vinc.lista=[]; } }
+  vincRender(); vincNovasRender();
 }
 function vincRender(){
-  document.getElementById('f-vinc-chips').innerHTML=_vinc.lista.map(x=>
-    `<span class="chip"><i class="ti ti-link" style="font-size:12px"></i> ${escH(x.nome)} <span style="color:var(--muted);font-size:11px">${escH(x.servidor||'')}</span><button type="button" title="Desvincular" onclick="vincDel('${x.id}')">×</button></span>`).join('')
-    || '<span style="font-size:12px;color:var(--muted)">Nenhuma conta vinculada.</span>';
+  document.getElementById('f-vinc-chips').innerHTML=[
+    ..._vinc.lista.map(x=>`<span class="chip"><i class="ti ti-link" style="font-size:12px"></i> ${escH(x.nome)} <span style="color:var(--muted);font-size:11px">${escH(x.servidor||'')}</span><button type="button" title="Desvincular" onclick="vincDel('${x.id}')">×</button></span>`),
+    ..._vinc.pend.map(x=>`<span class="chip" title="Será vinculada ao salvar"><i class="ti ti-link" style="font-size:12px"></i> ${escH(x.nome)} <span style="color:var(--muted);font-size:11px">${escH(x.servidor||'')} · ao salvar</span><button type="button" title="Tirar" onclick="vincPendDel('${x.id}')">×</button></span>`)
+  ].join('') || (_vinc.novas.length?'':'<span style="font-size:12px;color:var(--muted)">Nenhuma conta vinculada.</span>');
+}
+function vincPendDel(id){ _vinc.pend=_vinc.pend.filter(x=>x.id!==id); vincRender(); }
+// Duplicar: nova conta com os mesmos dados deste cadastro, mas outro usuário
+function vincDuplicar(){
+  vincNovasLer();
+  const nome=document.getElementById('f-nome').value.trim();
+  const n=_vinc.novas.length+2;
+  _vinc.novas.push({nome:nome?`${nome}${n}`:'', servidor:document.getElementById('f-servidor').value, valor:document.getElementById('f-valor').value});
+  vincNovasRender(); vincRender();
+  const ins=document.querySelectorAll('#f-vinc-novas .vn-nome'); const ult=ins[ins.length-1]; if(ult){ ult.focus(); ult.select(); }
+}
+function vincNovasLer(){
+  document.querySelectorAll('#f-vinc-novas .vinc-nova').forEach((el,i)=>{ const n=_vinc.novas[i]; if(!n) return;
+    n.nome=el.querySelector('.vn-nome').value; n.servidor=el.querySelector('.vn-serv').value; n.valor=el.querySelector('.vn-valor').value; });
+}
+function vincNovasRender(){
+  const opts=document.getElementById('f-servidor').innerHTML;
+  const box=document.getElementById('f-vinc-novas');
+  box.innerHTML=_vinc.novas.map((n,i)=>`<div class="vinc-nova">
+      <input class="vn-nome" placeholder="Usuário da nova conta" value="${escH(n.nome||'')}" title="Nome no servidor da conta duplicada">
+      <select class="vn-serv">${opts}</select>
+      <input class="vn-valor" type="number" step="0.01" placeholder="Valor" value="${escH(n.valor||'')}" title="Valor da mensalidade">
+      <button type="button" class="btn btn-sm btn-danger" title="Tirar" onclick="vincNovasLer();_vinc.novas.splice(${i},1);vincNovasRender();vincRender()"><i class="ti ti-x"></i></button>
+    </div>`).join('') + (_vinc.novas.length?'<div class="form-hint">Nova(s) conta(s) com o mesmo apelido, celular, terceiros, vencimento e status deste cadastro — criadas e vinculadas ao salvar. TVs não são copiadas.</div>':'');
+  box.querySelectorAll('.vn-serv').forEach((el,i)=>{ el.value=_vinc.novas[i].servidor||''; });
 }
 async function vincAdd(){
   const nome=document.getElementById('f-vinc-in').value.trim();
   const alvo=_vinc.todos.find(x=>x.nome===nome && x.id!==_vinc.id);
   if(!alvo){ toast('Escolha a conta na lista de sugestões','err'); return; }
+  if(!_vinc.id){ // cadastro novo: vincula ao salvar
+    if(!_vinc.pend.some(x=>x.id===alvo.id)) _vinc.pend.push(alvo);
+    document.getElementById('f-vinc-in').value=''; vincRender(); return;
+  }
   if(!confirm(`Vincular "${alvo.nome}" a este cliente?\n\nO pagamento das duas poderá ser feito de uma vez, e apelido, celular e nomes terceiros ficam iguais nas duas contas.`)) return;
   try{
     await api('POST','/api/clientes/vincular',{ids:[_vinc.id,alvo.id]});
@@ -4253,11 +4345,14 @@ function resumo6Meses(hist, onVer){
   const MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   const dias=(a,b)=>Math.round((new Date(a+'T12:00')-new Date(b+'T12:00'))/864e5);
   const ref=h=>String(h.mes_ref||String(h.vencimento||'').slice(0,7));
+  // Parcelas em atraso e em aberto sempre aparecem; os recebimentos completam até 6
+  const abertas=hist.filter(h=>h.status==='vencido'||h.status==='pendente').sort((a,b)=>ref(a).localeCompare(ref(b)));
   const pagos=hist.filter(h=>h.status==='pago')
     .sort((a,b)=>ref(b).localeCompare(ref(a))||String(b.pago_em||'').localeCompare(String(a.pago_em||'')))
-    .slice(0,6).reverse();
+    .slice(0,Math.max(0,6-abertas.length)).reverse();
   const cont={ok:0,tarde:0,bonus:0};
-  const cels=pagos.map(p=>{
+  const cels=[...pagos,...abertas].sort((a,b)=>ref(a).localeCompare(ref(b))).map(p=>p.status==='pago'?celPago(p):celAberta(p)).join('');
+  function celPago(p){
     const [a,m]=ref(p).split('-'); const rot=a&&m?`${MES[parseInt(m)-1]}/${a.slice(2)}`:'—';
     const atraso=p.pago_em&&p.vencimento?dias(p.pago_em,p.vencimento):0;
     let cls, st, sub;
@@ -4266,15 +4361,21 @@ function resumo6Meses(hist, onVer){
     else { cls='ok'; st='Pago'; sub=p.pago_em?fmtD(p.pago_em).slice(0,5):'em dia'; cont.ok++; }
     const val=fmtV(p.valor_pago??p.valor);
     return `<div class="m6-cel m6-${cls}" title="${fmtMesRef(ref(p))}: ${st} · ${val}${p.pago_em?' · pago em '+fmtD(p.pago_em):''}"><div class="m6-mes">${rot}</div><div class="m6-st">${st}</div><div class="m6-sub">${sub}</div></div>`;
-  }).join('');
+  }
+  function celAberta(p){
+    const [a,m]=ref(p).split('-'); const rot=a&&m?`${MES[parseInt(m)-1]}/${a.slice(2)}`:'—';
+    const venc=p.status==='vencido';
+    const sub=venc?`${Math.max(0,dias(hoje(),p.vencimento))}d atraso`:'vence '+fmtD(p.vencimento).slice(0,5);
+    return `<div class="m6-cel m6-${venc?'venc':'aberto'}" title="${fmtMesRef(ref(p))}: ${venc?'Vencida':'Em aberto'} · ${fmtV(p.valor)} · venc. ${fmtD(p.vencimento)}"><div class="m6-mes">${rot}</div><div class="m6-st">${venc?'Vencida':'Em aberto'}</div><div class="m6-sub">${sub}</div></div>`;
+  }
   const venc=hist.filter(h=>h.status==='vencido').length, aberto=hist.filter(h=>h.status==='pendente').length;
   const partes=[];
   if(pagos.length) partes.push(`<span style="color:var(--green)">${pagos.length} recebimento(s)${cont.tarde?` <span style="color:var(--muted)">(${cont.tarde} com atraso)</span>`:''}</span>`);
   if(cont.bonus) partes.push(`<span style="color:var(--purple)">${cont.bonus} bônus</span>`);
   if(venc) partes.push(`<span style="color:var(--red)">${venc} vencida(s)</span>`);
   if(aberto) partes.push(`<span style="color:var(--amber)">${aberto} em aberto</span>`);
-  return `<div class="m6"><div class="m6-head"><b>Últimos 6 recebimentos</b><span>${partes.join(' · ')||'nenhum recebimento ainda'}${onVer?` · <a href="#" onclick="${onVer};return false" style="color:var(--accent)">ver histórico completo</a>`:''}</span></div>
-    <div class="m6-grid">${cels||'<div style="color:var(--muted);font-size:12px;padding:6px 0">Nenhum pagamento registrado.</div>'}</div></div>`;
+  return `<div class="m6"><div class="m6-head"><b>${abertas.length?'Em aberto e últimos recebimentos':'Últimos 6 recebimentos'}</b><span>${partes.join(' · ')||'nenhum recebimento ainda'}${onVer?` · <a href="#" onclick="${onVer};return false" style="color:var(--accent)">ver histórico completo</a>`:''}</span></div>
+    <div class="m6-grid"${abertas.length>6?' style="grid-template-columns:repeat(auto-fill,minmax(90px,1fr))"':''}>${cels||'<div style="color:var(--muted);font-size:12px;padding:6px 0">Nenhum pagamento registrado.</div>'}</div></div>`;
 }
 async function abrirHist(id,nome){
   try{
@@ -4288,18 +4389,32 @@ async function abrirHist(id,nome){
       <div class="hist-stat"><div class="hist-stat-label">Vencidas</div><div class="hist-stat-val" style="color:var(--red)">${vc.length}</div></div>
       <div class="hist-stat"><div class="hist-stat-label">Em aberto</div><div class="hist-stat-val" style="color:var(--amber)">${pn.length}</div></div>`;
     document.getElementById('h-6m').innerHTML=resumo6Meses(hist);
-    document.getElementById('h-lista').innerHTML=hist.length===0
-      ?'<div class="empty"><i class="ti ti-receipt-off"></i><p>Nenhum movimento financeiro encontrado.</p></div>'
-      :`<table><thead><tr>
-          <th style="width:20%">Referência</th><th style="width:15%">Vencimento</th><th style="width:15%">Pagamento</th>
-          <th style="width:14%">Valor</th><th style="width:14%">Valor pago</th><th style="width:22%">Status</th>
-        </tr></thead><tbody>${[...hist].sort((a,b)=>String(a.mes_ref||a.vencimento||'').localeCompare(String(b.mes_ref||b.vencimento||''))||String(a.pago_em||'').localeCompare(String(b.pago_em||''))).map(h=>`<tr>
-          <td style="font-weight:500;white-space:nowrap">${fmtMesRef(h.mes_ref)}${h.origem==='recebimento_historico'?'<div style=\"font-size:10px;color:var(--muted);margin-top:2px\">Histórico importado</div>':''}</td><td>${fmtD(h.vencimento)}</td><td>${h.pago_em?fmtD(h.pago_em):'—'}</td>
-          <td>${fmtV(h.valor)}</td><td>${h.valor_pago!=null?fmtV(h.valor_pago):'—'}</td>
-          <td>${badgeSt(h,'')}${h.desconto>0?`<div style="font-size:10px;color:var(--muted);margin-top:2px">Desc. ${fmtV(h.desconto)}</div>`:''}</td>
-        </tr>`).join('')}</tbody></table>`;
+    _histTab={hist, todos:false};
+    histRenderTabela();
     openOv('ov-hist');
   }catch{toast('Erro ao carregar histórico','err');}
+}
+
+// Tabela do histórico: mais recente primeiro; mostra os 10 últimos e um botão para ver tudo
+let _histTab={hist:[],todos:false};
+function histRenderTabela(){
+  const hist=_histTab.hist, LIM=10;
+  const box=document.getElementById('h-lista');
+  if(!hist.length){ box.innerHTML='<div class="empty"><i class="ti ti-receipt-off"></i><p>Nenhum movimento financeiro encontrado.</p></div>'; return; }
+  const ord=[...hist].sort((a,b)=>String(b.mes_ref||b.vencimento||'').localeCompare(String(a.mes_ref||a.vencimento||''))||String(b.pago_em||'').localeCompare(String(a.pago_em||'')));
+  const lista=_histTab.todos?ord:ord.slice(0,LIM);
+  const resto=ord.length-LIM;
+  box.innerHTML=`<table><thead><tr>
+      <th style="width:20%">Referência</th><th style="width:15%">Vencimento</th><th style="width:15%">Pagamento</th>
+      <th style="width:14%">Valor</th><th style="width:14%">Valor pago</th><th style="width:22%">Status</th>
+    </tr></thead><tbody>${lista.map(h=>`<tr>
+      <td style="font-weight:500;white-space:nowrap">${fmtMesRef(h.mes_ref)}${h.origem==='recebimento_historico'?'<div style="font-size:10px;color:var(--muted);margin-top:2px">Histórico importado</div>':''}</td><td>${fmtD(h.vencimento)}</td><td>${h.pago_em?fmtD(h.pago_em):'—'}</td>
+      <td>${fmtV(h.valor)}</td><td>${h.valor_pago!=null?fmtV(h.valor_pago):'—'}</td>
+      <td>${badgeSt(h,'')}${h.desconto>0?`<div style="font-size:10px;color:var(--muted);margin-top:2px">Desc. ${fmtV(h.desconto)}</div>`:''}</td>
+    </tr>`).join('')}</tbody></table>
+    ${resto>0?`<div style="text-align:center;padding:10px;border-top:1px solid var(--border)">
+      <button class="btn btn-sm" onclick="_histTab.todos=!_histTab.todos;histRenderTabela()">
+        <i class="ti ti-${_histTab.todos?'chevron-up':'history'}"></i> ${_histTab.todos?'Mostrar só os 10 últimos':`Ver histórico completo (+${resto})`}</button></div>`:''}`;
 }
 
 /* ── WHATSAPP ── */

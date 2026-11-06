@@ -752,7 +752,6 @@ tbody tr:hover td{background:var(--bg3)}
           <button class="btn btn-sm" id="vencer-clear" onclick="cobsLimparVencer(true)" style="display:none;padding:3px 8px"><i class="ti ti-x"></i></button>
         </div>
       </div>
-      </div>
       <div id="vencer-banner" style="display:none;background:var(--amber-bg);border:1px solid var(--amber);border-radius:var(--radius-sm);padding:6px 12px;font-size:13px;color:var(--amber);margin-bottom:.75rem;display:none;align-items:center;gap:8px">
         <i class="ti ti-bell"></i>
         <span id="vencer-banner-txt"></span>
@@ -764,6 +763,8 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- INADIMPLENTES -->
     <div id="page-inadimplentes" class="page">
+      <div class="v2-page-heading"><div><div class="v2-eyebrow">CONTROLE DE ATRASOS</div><h2>Clientes inadimplentes</h2><p>Priorize as cobranças por quantidade ou antiguidade da dívida.</p></div></div>
+      <div class="inad-sort-toolbar"><label for="inad-ordem">Ordenar clientes por</label><select id="inad-ordem" onchange="renderInad()"><option value="antiga">Parcela mais antiga primeiro</option><option value="quantidade">Maior quantidade de parcelas primeiro</option></select></div>
       <div id="inad-card" class="card"><div class="loading">Carregando...</div></div>
     </div>
 
@@ -1258,7 +1259,7 @@ tbody tr:hover td{background:var(--bg3)}
 <div class="overlay" id="ov-hist">
   <div class="modal wide">
     <button class="close-btn" onclick="closeOv('ov-hist')"><i class="ti ti-x"></i></button>
-    <div class="modal-title" id="h-title">Histórico</div>
+    <div class="hist-heading"><div class="modal-title" id="h-title">Histórico</div><button class="btn btn-sm btn-primary" id="h-editar" type="button" style="display:none" onclick="histEditarCliente()"><i class="ti ti-edit"></i> Editar cadastro</button></div>
     <div class="hist-stats" id="h-stats"></div>
     <div id="h-6m"></div>
     <div class="table-wrap" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
@@ -2292,8 +2293,11 @@ async function renderInad(){
         if(!mapa[cb.cliente_id])mapa[cb.cliente_id]={nome:cb.cliente_nome,id:cb.cliente_id,total:0,qtd:0,itens:[]};
         mapa[cb.cliente_id].total+=Number(cb.valor||0);mapa[cb.cliente_id].qtd++;mapa[cb.cliente_id].itens.push(cb);
       });
-      const antigo=g=>g.itens.map(i=>String(i.vencimento||'')).sort()[0]||'';
-      return Object.values(mapa).sort((a,b)=>antigo(a).localeCompare(antigo(b))||b.total-a.total);
+      const antigo=g=>g.itens.reduce((min,i)=>{const data=String(i.vencimento||'');return data&&(!min||data<min)?data:min;},'');
+      const modo=(document.getElementById('inad-ordem')||{value:'antiga'}).value;
+      return Object.values(mapa).sort((a,b)=>modo==='quantidade'
+        ? b.qtd-a.qtd || antigo(a).localeCompare(antigo(b)) || String(a.nome).localeCompare(String(b.nome),'pt-BR')
+        : antigo(a).localeCompare(antigo(b)) || b.qtd-a.qtd || String(a.nome).localeCompare(String(b.nome),'pt-BR'));
     };
     const grupos=agrupar(venc.filter(c=>!c.arquivado));
     const arquivados=agrupar(venc.filter(c=>c.arquivado));
@@ -4408,13 +4412,23 @@ function resumo6Meses(hist, onVer){
   return `<div class="m6"><div class="m6-head"><b>${abertas.length?'Em aberto e últimos recebimentos':'Últimos 6 recebimentos'}</b><span>${partes.join(' · ')||'nenhum recebimento ainda'}${onVer?` · <a href="#" onclick="${onVer};return false" style="color:var(--accent)">ver histórico completo</a>`:''}</span></div>
     <div class="m6-grid"${abertas.length>6?' style="grid-template-columns:repeat(auto-fill,minmax(90px,1fr))"':''}>${cels||'<div style="color:var(--muted);font-size:12px;padding:6px 0">Nenhum pagamento registrado.</div>'}</div></div>`;
 }
+let _histClienteId=null;
+async function histEditarCliente(){
+  if(!_histClienteId)return;
+  const id=_histClienteId;
+  closeOv("ov-hist");
+  await openClienteModal(id);
+}
 async function abrirHist(id,nome){
   try{
     const hist=await api('GET',`/api/clientes/${id}/historico`);
     const pg=hist.filter(h=>h.status==='pago');
     const vc=hist.filter(h=>h.status==='vencido');
     const pn=hist.filter(h=>h.status==='pendente');
+    _histClienteId=id;
     document.getElementById('h-title').textContent='Histórico — '+nome;
+    const editar=document.getElementById('h-editar');
+    editar.style.display=id?'':'none';
     document.getElementById('h-stats').innerHTML=`
       <div class="hist-stat"><div class="hist-stat-label">Total pago</div><div class="hist-stat-val" style="color:var(--green)">${fmtV(pg.reduce((s,h)=>s+Number(h.valor_pago??h.valor??0),0))}</div></div>
       <div class="hist-stat"><div class="hist-stat-label">Vencidas</div><div class="hist-stat-val" style="color:var(--red)">${vc.length}</div></div>

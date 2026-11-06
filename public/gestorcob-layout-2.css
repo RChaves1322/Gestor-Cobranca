@@ -61,3 +61,14 @@
 #page-cobrancas .btn-group .btn-success{min-width:63px}
 #page-cobrancas td:last-child{text-align:right;white-space:nowrap}
 @media(max-width:760px){#page-cobrancas .v4-search-period{flex-wrap:wrap}#page-cobrancas .v4-search-period>.busca-cob,#page-cobrancas .v4-search-period>.filter-bar{flex:1 1 100%;min-width:0}#page-cobrancas .v4-secondary-filters{justify-content:flex-start}#page-cobrancas .v4-secondary-filters>.btn{margin-left:0}}
+
+/* Inadimplentes: filtros de prioridade e acesso à edição pelo histórico */
+#page-inadimplentes .v2-page-heading{margin-bottom:14px}
+#page-inadimplentes .inad-sort-toolbar{display:flex;align-items:center;gap:12px;margin:0 0 14px;flex-wrap:wrap}
+#page-inadimplentes .inad-sort-toolbar label{font-size:12px;font-weight:600;color:#a2b5d0}
+#page-inadimplentes .inad-sort-toolbar select{max-width:330px;min-width:240px;background:#1a2740;border:1px solid #354865;border-radius:9px;padding:10px 12px;color:#f0f5ff}
+#ov-hist .hist-heading{display:flex;align-items:center;justify-content:space-between;gap:24px;padding-right:24px;margin-bottom:12px;flex-wrap:wrap}
+#ov-hist .hist-heading .modal-title{margin-bottom:0;min-width:0;overflow-wrap:anywhere}
+#ov-hist .hist-heading #h-editar{flex-shrink:0}
+#page-cobrancas .v4-secondary-filters{min-height:0!important;padding:6px 9px!important;align-items:center!important}
+@media(max-width:700px){#page-inadimplentes .inad-sort-toolbar{align-items:stretch;flex-direction:column;gap:5px}#page-inadimplentes .inad-sort-toolbar select{width:100%;max-width:none;min-width:0}#ov-hist .hist-heading{gap:8px}}

@@ -687,6 +687,7 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- PAINEL -->
     <div id="page-dashboard" class="page">
+      <div class="v2-page-heading"><div><div class="v2-eyebrow">VISÃO GERAL</div><h2>Seu negócio em um só lugar</h2><p>Acompanhe os recebimentos e as cobranças do mês.</p></div><div class="v2-quick"><button class="btn btn-primary" onclick="showPage('cobrancas')"><i class="ti ti-receipt"></i> Ver cobranças</button><button class="btn" onclick="showPage('clientes')"><i class="ti ti-users"></i> Clientes</button></div></div>
       <div class="metrics" id="metrics"><div class="metric"><div class="metric-label">Carregando...</div></div></div>
       <div class="card">
         <div class="card-header">
@@ -702,6 +703,8 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- CLIENTES -->
     <div id="page-clientes" class="page">
+      <div class="v2-page-heading"><div><div class="v2-eyebrow">CADASTROS</div><h2>Seus clientes</h2><p>Consulte e gerencie sua base de clientes.</p></div></div>
+      <div class="v2-toolbar"><span class="v2-toolbar-label">Visualizar</span><div class="v2-tabs" id="v2-client-tabs"><button type="button" class="active" data-value="">Todos</button><button type="button" data-value="ativo">Ativos</button><button type="button" data-value="inativo">Inativos</button></div></div>
       <div class="filter-bar">
         <input type="text" id="bc" placeholder="Buscar por nome, apelido, nome terceiro, servidor ou MAC..." oninput="clearTimeout(window._bcT);window._bcT=setTimeout(renderClientes,250)">
         <select id="fsc" onchange="renderClientes()">
@@ -716,6 +719,8 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- COBRANÇAS -->
     <div id="page-cobrancas" class="page active">
+      <div class="v2-page-heading"><div><div class="v2-eyebrow">CONTROLE DE RECEBIMENTOS</div><h2>Cobranças do mês</h2><p>Priorize vencimentos e acompanhe cada pagamento.</p></div></div>
+      <div class="v2-toolbar"><span class="v2-toolbar-label">Status</span><div class="v2-tabs" id="v2-billing-tabs"><button type="button" class="active" data-value="">Todas</button><button type="button" data-value="pendente">Pendentes</button><button type="button" data-value="vencido">Vencidas</button><button type="button" data-value="pago">Pagas</button><button type="button" data-value="cancelado">Canceladas</button></div></div>
       <div class="busca-cob">
         <i class="ti ti-search"></i>
         <input type="text" id="bcc" placeholder="Buscar cliente por nome ou apelido..." oninput="cobsBuscar()" autocomplete="off">
@@ -850,7 +855,7 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- FINANCEIRO -->
     <div id="page-financeiro" class="page">
-
+      <div class="v2-page-heading"><div><div class="v2-eyebrow">ANÁLISE FINANCEIRA</div><h2>Visão financeira</h2><p>Compare períodos, acompanhe receitas, despesas e resultados.</p></div></div>
       <div class="fin-top">
         <div class="fin-periodo">
           <span>Período</span>
@@ -5943,5 +5948,6 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeSidebar(); }
 /* ── INIT ── */
 iniciarAutenticacao();
 </script>
+<script src="/gestorcob-layout-2.js" defer></script>
 </body>
 </html>

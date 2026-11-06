@@ -637,6 +637,8 @@ tbody tr:hover td{background:var(--bg3)}
 .valores-ocultos .money{color:transparent !important;user-select:none}
 .valores-ocultos .money::after{content:'R$ •••••';position:absolute;left:0;top:50%;transform:translateY(-50%);color:var(--muted);letter-spacing:1px;white-space:nowrap}
 </style>
+<link rel="stylesheet" href="/gestorcob-visual-2.css">
+<link rel="stylesheet" href="/gestorcob-layout-2.css">
 </head>
 <body>
 <div class="login-screen" id="login-screen">
@@ -686,6 +688,7 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- PAINEL -->
     <div id="page-dashboard" class="page">
+      <div class="v2-page-heading"><div><div class="v2-eyebrow">VISÃO GERAL</div><h2>Seu negócio em um só lugar</h2><p>Acompanhe os recebimentos e as cobranças do mês.</p></div><div class="v2-quick"><button class="btn btn-primary" onclick="showPage('cobrancas')"><i class="ti ti-receipt"></i> Ver cobranças</button><button class="btn" onclick="showPage('clientes')"><i class="ti ti-users"></i> Clientes</button></div></div>
       <div class="metrics" id="metrics"><div class="metric"><div class="metric-label">Carregando...</div></div></div>
       <div class="card">
         <div class="card-header">
@@ -701,6 +704,8 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- CLIENTES -->
     <div id="page-clientes" class="page">
+      <div class="v2-page-heading"><div><div class="v2-eyebrow">CADASTROS</div><h2>Seus clientes</h2><p>Consulte e gerencie sua base de clientes.</p></div></div>
+      <div class="v2-toolbar"><span class="v2-toolbar-label">Visualizar</span><div class="v2-tabs" id="v2-client-tabs"><button type="button" class="active" data-value="">Todos</button><button type="button" data-value="ativo">Ativos</button><button type="button" data-value="inativo">Inativos</button></div></div>
       <div class="filter-bar">
         <input type="text" id="bc" placeholder="Buscar por nome, apelido, nome terceiro, servidor ou MAC..." oninput="clearTimeout(window._bcT);window._bcT=setTimeout(renderClientes,250)">
         <select id="fsc" onchange="renderClientes()">
@@ -715,6 +720,11 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- COBRANÇAS -->
     <div id="page-cobrancas" class="page active">
+      <div class="v2-page-heading"><div><div class="v2-eyebrow">CONTROLE DE RECEBIMENTOS</div><h2>Cobranças do mês</h2><p>Priorize vencimentos e acompanhe cada pagamento.</p></div></div>
+      <div class="v2-toolbar"><span class="v2-toolbar-label">Status</span><div class="v2-tabs" id="v2-billing-tabs"><button type="button" class="active" data-value="">Todas</button><button type="button" data-value="pendente">Pendentes</button><button type="button" data-value="vencido">Vencidas</button><button type="button" data-value="pago">Pagas</button><button type="button" data-value="cancelado">Canceladas</button></div></div>
+      <div class="v3-stats" id="v3-cob-stats" aria-live="polite"></div>
+      <div class="v4-stats-note">Indicadores do mês selecionado, incluindo pagamentos ocultos.</div>
+      <div class="v4-search-period">
       <div class="busca-cob">
         <i class="ti ti-search"></i>
         <input type="text" id="bcc" placeholder="Buscar cliente por nome ou apelido..." oninput="cobsBuscar()" autocomplete="off">
@@ -722,7 +732,10 @@ tbody tr:hover td{background:var(--bg3)}
       </div>
       <div class="filter-bar">
         <select id="fm" onchange="cobsLimparVencer();renderCobs()"></select>
-        <select id="fs" onchange="cobsLimparVencer();renderCobs()">
+      </div>
+      </div>
+      <div class="filter-bar v4-secondary-filters">
+        <select id="fs" class="v3-hidden-filter" aria-label="Status das cobranças" tabindex="-1" onchange="cobsLimparVencer();renderCobs()">
           <option value="">Todos os status</option>
           <option value="pendente">Pendentes</option>
           <option value="pago">Pagas</option>
@@ -750,6 +763,8 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- INADIMPLENTES -->
     <div id="page-inadimplentes" class="page">
+      <div class="v2-page-heading"><div><div class="v2-eyebrow">CONTROLE DE ATRASOS</div><h2>Clientes inadimplentes</h2><p>Priorize as cobranças por quantidade ou antiguidade da dívida.</p></div></div>
+      <div class="inad-sort-toolbar"><label for="inad-ordem">Ordenar clientes por</label><select id="inad-ordem" onchange="renderInad()"><option value="antiga">Parcela mais antiga primeiro</option><option value="quantidade">Maior quantidade de parcelas primeiro</option></select></div>
       <div id="inad-card" class="card"><div class="loading">Carregando...</div></div>
     </div>
 
@@ -849,7 +864,7 @@ tbody tr:hover td{background:var(--bg3)}
 
     <!-- FINANCEIRO -->
     <div id="page-financeiro" class="page">
-
+      <div class="v2-page-heading"><div><div class="v2-eyebrow">ANÁLISE FINANCEIRA</div><h2>Visão financeira</h2><p>Compare períodos, acompanhe receitas, despesas e resultados.</p></div></div>
       <div class="fin-top">
         <div class="fin-periodo">
           <span>Período</span>
@@ -1244,7 +1259,7 @@ tbody tr:hover td{background:var(--bg3)}
 <div class="overlay" id="ov-hist">
   <div class="modal wide">
     <button class="close-btn" onclick="closeOv('ov-hist')"><i class="ti ti-x"></i></button>
-    <div class="modal-title" id="h-title">Histórico</div>
+    <div class="hist-heading"><div class="modal-title" id="h-title">Histórico</div><button class="btn btn-sm btn-primary" id="h-editar" type="button" style="display:none" onclick="histEditarCliente()"><i class="ti ti-edit"></i> Editar cadastro</button></div>
     <div class="hist-stats" id="h-stats"></div>
     <div id="h-6m"></div>
     <div class="table-wrap" style="border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden">
@@ -2027,7 +2042,7 @@ async function renderDash(){
           <td>${badgeSt(cb,'')}</td>
           <td><div class="btn-group">
             ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor}','${cb.vencimento}','${cb.mes_ref}',${cb.valor},'${cb.cliente_id}')"><i class="ti ti-check"></i> Pago</button>`:''}
-            ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')"><i class="ti ti-brand-whatsapp"></i></button>`:''}
+            ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')" title="Enviar cobrança pelo WhatsApp" aria-label="Enviar cobrança pelo WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>`:''}
           </div></td>
         </tr>`).join('')}</tbody></table>`;
     atualizarBadge();
@@ -2150,6 +2165,7 @@ async function renderCobs(vencerEmDias){
     if(fm)fm.innerHTML=todos.map(m=>`<option value="${m}"${m===(prev||ma)?'selected':''}>${fmtMesRef(m)}</option>`).join('');
 
     let lista;
+    let resumoMes = null;
 
     if(vencerEmDias || _cobsVencerAtivo){
       // Modo: próximos a vencer
@@ -2198,6 +2214,8 @@ async function renderCobs(vencerEmDias){
       if(fs)url+=`&status=${fs}`;
       if(busca)url+=`&busca=${encodeURIComponent(busca)}`;
       lista = await api('GET',url);
+      // A consulta integral serve apenas aos indicadores do mês, antes de ocultar linhas.
+      if(!fs && !busca) resumoMes=lista;
       // Pagos/cancelados ficam escondidos, a não ser que peça para ver (ou filtre por eles)
       const escondidos=lista.filter(c=>c.status==='pago'||c.status==='cancelado').length;
       // Buscando um cliente: mostra tudo dele, inclusive os pagos, para conferir
@@ -2207,6 +2225,20 @@ async function renderCobs(vencerEmDias){
       const bp=document.getElementById('cobs-pagos-btn'); if(bp){ bp.disabled=!!fs||buscando; bp.title=buscando?'Na busca por cliente os pagos sempre aparecem':''; }
     }
     lista.sort(ordemVenc);
+    // Indicadores globais do mês: independentes das abas, busca e opção de ocultar pagos.
+    // No modo "vence em" a tabela pode cruzar meses; o resumo continua referente ao mês selecionado.
+    if(!resumoMes){
+      const mesIndicadores=(document.getElementById('fm')||{value:ma}).value||ma;
+      resumoMes=await api('GET',`/api/cobrancas?mes_ref=${mesIndicadores}`);
+    }
+    const resumo={total:resumoMes.length,pendente:0,vencido:0,pago:0,cancelado:0};
+    resumoMes.forEach(cb=>{if(Object.prototype.hasOwnProperty.call(resumo,cb.status))resumo[cb.status]++;});
+    const statsEl=document.getElementById('v3-cob-stats');
+    if(statsEl){
+      const itens=[['total','Total do mês','ti-list-details'],['pendente','Pendentes','ti-clock'],['vencido','Vencidas','ti-alert-triangle'],['pago','Pagas','ti-circle-check']];
+      statsEl.innerHTML=itens.map(([k,n,ico])=>`<div class="v3-stat v3-stat-${k}"><span class="v3-stat-label"><i class="ti ${ico}"></i> ${n}</span><strong>${resumo[k]}</strong></div>`).join('');
+      statsEl.title='Contagem de todas as cobranças do mês selecionado, inclusive as ocultas.';
+    }
 
     const hoje2 = new Date(); hoje2.setHours(0,0,0,0);
     const fmtISO2 = d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -2232,7 +2264,7 @@ async function renderCobs(vencerEmDias){
              : diasAteVenc <= 3  ? ` <span style="color:var(--amber);font-size:11px">${diasAteVenc}d</span>` : '')
             : '';
           return`<tr style="${destaque}">
-            <td style="font-weight:600"><span class="cli-link" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Ver pagamentos do cliente">${cb.cliente_nome}</span> ${badgeSt(cb,'margin-left:4px')}</td>
+            <td style="font-weight:600"><span class="cli-link" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Ver pagamentos do cliente">${cb.cliente_nome}</span></td>
             <td data-label="Servidor">${cb.servidor||'—'}</td>
             <td data-label="Venc.">${fmtD(cb.vencimento)}${vencLabel}</td>
             <td data-label="Pagto.">${cb.pago_em?fmtD(cb.pago_em):'—'}</td>
@@ -2241,9 +2273,9 @@ async function renderCobs(vencerEmDias){
             <td><div class="btn-group">
               ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor||''}','${cb.vencimento}','${cb.mes_ref}',${cb.valor},'${cb.cliente_id}')"><i class="ti ti-check"></i><span> Pago</span></button>`:''}
               ${cb.status==='pago'&&cb.cliente_id?`<button class="btn btn-sm" style="color:var(--purple);border-color:var(--purple)" onclick="abrirPag(null,'${esc(cb.cliente_nome)}','${esc(cb.servidor||'')}',null,null,${Number(cb.valor)||0},'${cb.cliente_id}')" title="Receber meses adiantados"><i class="ti ti-calendar-plus"></i><span> Adiantar</span></button>`:''}
-              ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')"><i class="ti ti-brand-whatsapp"></i></button>`:''}
-              ${cb.status!=='cancelado'&&cb.status!=='pago'?`<button class="btn btn-sm btn-danger" onclick="cancelCob('${cb.id}')"><i class="ti ti-x"></i></button>`:''}
-              <button class="btn btn-sm" style="color:var(--accent);border-color:var(--accent);margin-left:auto" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Histórico do cliente"><i class="ti ti-clock"></i></button>
+              ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')" title="Enviar pelo WhatsApp" aria-label="Enviar pelo WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>`:''}
+              ${cb.status!=='cancelado'&&cb.status!=='pago'?`<button class="btn btn-sm btn-danger" onclick="cancelCob('${cb.id}')" title="Cancelar cobrança" aria-label="Cancelar cobrança"><i class="ti ti-x"></i></button>`:''}
+              <button class="btn btn-sm" style="color:var(--accent);border-color:var(--accent)" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Histórico do cliente" aria-label="Histórico do cliente"><i class="ti ti-clock"></i></button>
             </div></td>
           </tr>`;
         }).join('')}</tbody></table>`;
@@ -2261,8 +2293,11 @@ async function renderInad(){
         if(!mapa[cb.cliente_id])mapa[cb.cliente_id]={nome:cb.cliente_nome,id:cb.cliente_id,total:0,qtd:0,itens:[]};
         mapa[cb.cliente_id].total+=Number(cb.valor||0);mapa[cb.cliente_id].qtd++;mapa[cb.cliente_id].itens.push(cb);
       });
-      const antigo=g=>g.itens.map(i=>String(i.vencimento||'')).sort()[0]||'';
-      return Object.values(mapa).sort((a,b)=>antigo(a).localeCompare(antigo(b))||b.total-a.total);
+      const antigo=g=>g.itens.reduce((min,i)=>{const data=String(i.vencimento||'');return data&&(!min||data<min)?data:min;},'');
+      const modo=(document.getElementById('inad-ordem')||{value:'antiga'}).value;
+      return Object.values(mapa).sort((a,b)=>modo==='quantidade'
+        ? b.qtd-a.qtd || antigo(a).localeCompare(antigo(b)) || String(a.nome).localeCompare(String(b.nome),'pt-BR')
+        : antigo(a).localeCompare(antigo(b)) || b.qtd-a.qtd || String(a.nome).localeCompare(String(b.nome),'pt-BR'));
     };
     const grupos=agrupar(venc.filter(c=>!c.arquivado));
     const arquivados=agrupar(venc.filter(c=>c.arquivado));
@@ -4377,13 +4412,23 @@ function resumo6Meses(hist, onVer){
   return `<div class="m6"><div class="m6-head"><b>${abertas.length?'Em aberto e últimos recebimentos':'Últimos 6 recebimentos'}</b><span>${partes.join(' · ')||'nenhum recebimento ainda'}${onVer?` · <a href="#" onclick="${onVer};return false" style="color:var(--accent)">ver histórico completo</a>`:''}</span></div>
     <div class="m6-grid"${abertas.length>6?' style="grid-template-columns:repeat(auto-fill,minmax(90px,1fr))"':''}>${cels||'<div style="color:var(--muted);font-size:12px;padding:6px 0">Nenhum pagamento registrado.</div>'}</div></div>`;
 }
+let _histClienteId=null;
+async function histEditarCliente(){
+  if(!_histClienteId)return;
+  const id=_histClienteId;
+  closeOv("ov-hist");
+  await openClienteModal(id);
+}
 async function abrirHist(id,nome){
   try{
     const hist=await api('GET',`/api/clientes/${id}/historico`);
     const pg=hist.filter(h=>h.status==='pago');
     const vc=hist.filter(h=>h.status==='vencido');
     const pn=hist.filter(h=>h.status==='pendente');
+    _histClienteId=id;
     document.getElementById('h-title').textContent='Histórico — '+nome;
+    const editar=document.getElementById('h-editar');
+    editar.style.display=id?'':'none';
     document.getElementById('h-stats').innerHTML=`
       <div class="hist-stat"><div class="hist-stat-label">Total pago</div><div class="hist-stat-val" style="color:var(--green)">${fmtV(pg.reduce((s,h)=>s+Number(h.valor_pago??h.valor??0),0))}</div></div>
       <div class="hist-stat"><div class="hist-stat-label">Vencidas</div><div class="hist-stat-val" style="color:var(--red)">${vc.length}</div></div>
@@ -5942,5 +5987,6 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeSidebar(); }
 /* ── INIT ── */
 iniciarAutenticacao();
 </script>
+<script src="/gestorcob-layout-2.js" defer></script>
 </body>
 </html>

@@ -1,0 +1,47 @@
+/* GestorCob 2.0 — camada visual não destrutiva */
+:root{--bg:#0b1120;--bg2:#141d2e;--bg3:#1c2940;--border:#2a3851;--text:#f1f5fc;--muted:#94a6c4;--accent:#4f8ef7;--accent2:#3475e7;--green:#22d59a;--amber:#f6b341;--red:#ff626b;--radius:13px;--radius-sm:8px;--sidebar-w:206px;--shadow:0 12px 34px rgba(0,0,0,.22)}
+body{background:var(--bg);font-size:13px}
+.sidebar{background:#101827;border-right-color:#26354e}
+.sidebar-logo{padding:1.15rem 1rem}
+.nav{padding:.75rem .65rem;gap:4px}
+.nav-item{border-radius:9px;padding:10px 12px;transition:background .18s,color .18s}
+.nav-item.active{background:linear-gradient(90deg,rgba(79,142,247,.25),rgba(79,142,247,.09));box-shadow:inset 3px 0 0 var(--accent);color:#a9caff}
+.nav-item:hover{background:#202c43}
+.topbar{background:rgba(17,26,42,.96);backdrop-filter:blur(14px);padding:1rem 1.35rem;min-height:64px}
+.topbar-title{font-size:17px;font-weight:750;letter-spacing:-.35px}
+.content{padding:1.4rem;max-width:1920px;width:100%;margin:0 auto}
+.metrics,.fin-kpis,.fin-grid{gap:13px}
+.metric,.fin-kpi,.card{background:linear-gradient(160deg,#182235,#141c2b);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.metric{padding:1.1rem 1.15rem;min-height:94px;position:relative;overflow:hidden}
+.metric:before{content:'';position:absolute;left:0;top:18px;bottom:18px;width:3px;border-radius:5px;background:var(--accent);opacity:.85}
+.metric-label{font-size:11px;letter-spacing:.65px;margin-bottom:9px}
+.metric-value{font-size:27px;letter-spacing:-.8px;line-height:1.2;font-variant-numeric:tabular-nums}
+.card{overflow:hidden;margin-bottom:1.1rem}
+.card-header{padding:1rem 1.15rem;background:rgba(255,255,255,.015)}
+.card-title{font-size:14px;font-weight:700}
+.btn{border-radius:8px;min-height:34px;justify-content:center;font-weight:600;transition:background .18s,transform .18s,border-color .18s}
+.btn:hover:not(:disabled){transform:translateY(-1px)}
+.btn-primary{background:linear-gradient(135deg,#4f8ef7,#3677eb);box-shadow:0 3px 12px rgba(79,142,247,.16)}
+input,select,textarea{background:#1c273c;border-color:#34415b;border-radius:8px;min-height:36px}
+input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(79,142,247,.14)}
+.filter-bar{gap:10px;margin-bottom:1rem}
+.table-wrap{scrollbar-color:#344560 transparent}
+table{border-collapse:separate;border-spacing:0;font-size:12.5px}
+th{padding:12px 13px;background:#151e2f;color:#9eb0cc;letter-spacing:.65px;font-size:10px}
+td{padding:11px 13px;border-bottom-color:#29354a}
+tbody tr:nth-child(even) td{background:rgba(255,255,255,.012)}
+tbody tr:hover td{background:#202e47}
+.badge{padding:4px 10px;font-size:10.5px;font-weight:700;letter-spacing:.1px}
+.badge-vencido{background:#401d29;color:#ff858b}
+.badge-pendente{background:#403018;color:#ffc267}
+.badge-pago,.badge-ativo{background:#123a2e;color:#50e4ad}
+#page-clientes .card,#page-cobrancas .card,#page-dashboard .card,#page-financeiro .card{border-radius:13px}
+#page-clientes td:first-child,#page-cobrancas td:first-child,#page-dashboard td:first-child{font-weight:550}
+#page-financeiro .fin-tabs{gap:6px;flex-wrap:wrap}
+#page-financeiro .fin-kpis{margin-bottom:1.2rem}
+#page-cobrancas .busca-cob input{min-height:43px}
+#page-cobrancas .vence-box{border-radius:9px}
+.modal{border-radius:16px;box-shadow:0 24px 90px rgba(0,0,0,.55)}
+:focus-visible{outline:2px solid #80b4ff;outline-offset:2px}
+@media(max-width:900px){.content{padding:1rem}.topbar{padding:.75rem 1rem}.metric-value{font-size:23px}}
+@media(max-width:640px){.content{padding:.75rem}.metric{min-height:82px;padding:.85rem}.metric-label{font-size:10px}.metric-value{font-size:21px}.card-header{padding:.85rem}.btn{min-height:36px}td{padding:10px 9px}}

@@ -723,6 +723,8 @@ tbody tr:hover td{background:var(--bg3)}
       <div class="v2-page-heading"><div><div class="v2-eyebrow">CONTROLE DE RECEBIMENTOS</div><h2>Cobranças do mês</h2><p>Priorize vencimentos e acompanhe cada pagamento.</p></div></div>
       <div class="v2-toolbar"><span class="v2-toolbar-label">Status</span><div class="v2-tabs" id="v2-billing-tabs"><button type="button" class="active" data-value="">Todas</button><button type="button" data-value="pendente">Pendentes</button><button type="button" data-value="vencido">Vencidas</button><button type="button" data-value="pago">Pagas</button><button type="button" data-value="cancelado">Canceladas</button></div></div>
       <div class="v3-stats" id="v3-cob-stats" aria-live="polite"></div>
+      <div class="v4-stats-note">Indicadores do mês selecionado, incluindo pagamentos ocultos.</div>
+      <div class="v4-search-period">
       <div class="busca-cob">
         <i class="ti ti-search"></i>
         <input type="text" id="bcc" placeholder="Buscar cliente por nome ou apelido..." oninput="cobsBuscar()" autocomplete="off">
@@ -730,6 +732,9 @@ tbody tr:hover td{background:var(--bg3)}
       </div>
       <div class="filter-bar">
         <select id="fm" onchange="cobsLimparVencer();renderCobs()"></select>
+      </div>
+      </div>
+      <div class="filter-bar v4-secondary-filters">
         <select id="fs" class="v3-hidden-filter" aria-label="Status das cobranças" tabindex="-1" onchange="cobsLimparVencer();renderCobs()">
           <option value="">Todos os status</option>
           <option value="pendente">Pendentes</option>
@@ -746,6 +751,7 @@ tbody tr:hover td{background:var(--bg3)}
           <button class="btn btn-sm btn-amber" onclick="filtrarProximosVencer()" style="padding:3px 10px"><i class="ti ti-search"></i> Filtrar</button>
           <button class="btn btn-sm" id="vencer-clear" onclick="cobsLimparVencer(true)" style="display:none;padding:3px 8px"><i class="ti ti-x"></i></button>
         </div>
+      </div>
       </div>
       <div id="vencer-banner" style="display:none;background:var(--amber-bg);border:1px solid var(--amber);border-radius:var(--radius-sm);padding:6px 12px;font-size:13px;color:var(--amber);margin-bottom:.75rem;display:none;align-items:center;gap:8px">
         <i class="ti ti-bell"></i>
@@ -2158,6 +2164,7 @@ async function renderCobs(vencerEmDias){
     if(fm)fm.innerHTML=todos.map(m=>`<option value="${m}"${m===(prev||ma)?'selected':''}>${fmtMesRef(m)}</option>`).join('');
 
     let lista;
+    let resumoMes = null;
 
     if(vencerEmDias || _cobsVencerAtivo){
       // Modo: próximos a vencer
@@ -2206,6 +2213,8 @@ async function renderCobs(vencerEmDias){
       if(fs)url+=`&status=${fs}`;
       if(busca)url+=`&busca=${encodeURIComponent(busca)}`;
       lista = await api('GET',url);
+      // A consulta integral serve apenas aos indicadores do mês, antes de ocultar linhas.
+      if(!fs && !busca) resumoMes=lista;
       // Pagos/cancelados ficam escondidos, a não ser que peça para ver (ou filtre por eles)
       const escondidos=lista.filter(c=>c.status==='pago'||c.status==='cancelado').length;
       // Buscando um cliente: mostra tudo dele, inclusive os pagos, para conferir
@@ -2215,14 +2224,19 @@ async function renderCobs(vencerEmDias){
       const bp=document.getElementById('cobs-pagos-btn'); if(bp){ bp.disabled=!!fs||buscando; bp.title=buscando?'Na busca por cliente os pagos sempre aparecem':''; }
     }
     lista.sort(ordemVenc);
-    // Indicadores referentes aos resultados carregados com os filtros atuais.
-    const resumo = {total:lista.length,pendente:0,vencido:0,pago:0,cancelado:0};
-    lista.forEach(cb=>{if(Object.prototype.hasOwnProperty.call(resumo,cb.status))resumo[cb.status]++;});
+    // Indicadores globais do mês: independentes das abas, busca e opção de ocultar pagos.
+    // No modo "vence em" a tabela pode cruzar meses; o resumo continua referente ao mês selecionado.
+    if(!resumoMes){
+      const mesIndicadores=(document.getElementById('fm')||{value:ma}).value||ma;
+      resumoMes=await api('GET',`/api/cobrancas?mes_ref=${mesIndicadores}`);
+    }
+    const resumo={total:resumoMes.length,pendente:0,vencido:0,pago:0,cancelado:0};
+    resumoMes.forEach(cb=>{if(Object.prototype.hasOwnProperty.call(resumo,cb.status))resumo[cb.status]++;});
     const statsEl=document.getElementById('v3-cob-stats');
     if(statsEl){
-      const itens=[['total','Exibidas','ti-list-details'],['pendente','Pendentes','ti-clock'],['vencido','Vencidas','ti-alert-triangle'],['pago','Pagas','ti-circle-check']];
+      const itens=[['total','Total do mês','ti-list-details'],['pendente','Pendentes','ti-clock'],['vencido','Vencidas','ti-alert-triangle'],['pago','Pagas','ti-circle-check']];
       statsEl.innerHTML=itens.map(([k,n,ico])=>`<div class="v3-stat v3-stat-${k}"><span class="v3-stat-label"><i class="ti ${ico}"></i> ${n}</span><strong>${resumo[k]}</strong></div>`).join('');
-      statsEl.title='Indicadores das cobranças carregadas com os filtros atuais; pagamentos ocultos não entram na contagem.';
+      statsEl.title='Contagem de todas as cobranças do mês selecionado, inclusive as ocultas.';
     }
 
     const hoje2 = new Date(); hoje2.setHours(0,0,0,0);
@@ -2258,9 +2272,9 @@ async function renderCobs(vencerEmDias){
             <td><div class="btn-group">
               ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor||''}','${cb.vencimento}','${cb.mes_ref}',${cb.valor},'${cb.cliente_id}')"><i class="ti ti-check"></i><span> Pago</span></button>`:''}
               ${cb.status==='pago'&&cb.cliente_id?`<button class="btn btn-sm" style="color:var(--purple);border-color:var(--purple)" onclick="abrirPag(null,'${esc(cb.cliente_nome)}','${esc(cb.servidor||'')}',null,null,${Number(cb.valor)||0},'${cb.cliente_id}')" title="Receber meses adiantados"><i class="ti ti-calendar-plus"></i><span> Adiantar</span></button>`:''}
-              ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')"><i class="ti ti-brand-whatsapp"></i></button>`:''}
+              ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')" title="Enviar pelo WhatsApp" aria-label="Enviar pelo WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>`:''}
               ${cb.status!=='cancelado'&&cb.status!=='pago'?`<button class="btn btn-sm btn-danger" onclick="cancelCob('${cb.id}')" title="Cancelar cobrança" aria-label="Cancelar cobrança"><i class="ti ti-x"></i></button>`:''}
-              <button class="btn btn-sm" style="color:var(--accent);border-color:var(--accent);margin-left:auto" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Histórico do cliente" aria-label="Histórico do cliente"><i class="ti ti-clock"></i></button>
+              <button class="btn btn-sm" style="color:var(--accent);border-color:var(--accent)" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Histórico do cliente" aria-label="Histórico do cliente"><i class="ti ti-clock"></i></button>
             </div></td>
           </tr>`;
         }).join('')}</tbody></table>`;

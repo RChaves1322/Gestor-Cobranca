@@ -7,6 +7,7 @@
     group.addEventListener('click',e=>{
       const btn=e.target.closest('button[data-value]');if(!btn)return;
       select.value=btn.dataset.value;
+      if(groupId==='v2-billing-tabs' && typeof window.cobsLimparVencer==='function')window.cobsLimparVencer();
       sync();
       if(typeof window[callback]==='function')window[callback]();
     });

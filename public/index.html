@@ -722,6 +722,7 @@ tbody tr:hover td{background:var(--bg3)}
     <div id="page-cobrancas" class="page active">
       <div class="v2-page-heading"><div><div class="v2-eyebrow">CONTROLE DE RECEBIMENTOS</div><h2>Cobranças do mês</h2><p>Priorize vencimentos e acompanhe cada pagamento.</p></div></div>
       <div class="v2-toolbar"><span class="v2-toolbar-label">Status</span><div class="v2-tabs" id="v2-billing-tabs"><button type="button" class="active" data-value="">Todas</button><button type="button" data-value="pendente">Pendentes</button><button type="button" data-value="vencido">Vencidas</button><button type="button" data-value="pago">Pagas</button><button type="button" data-value="cancelado">Canceladas</button></div></div>
+      <div class="v3-stats" id="v3-cob-stats" aria-live="polite"></div>
       <div class="busca-cob">
         <i class="ti ti-search"></i>
         <input type="text" id="bcc" placeholder="Buscar cliente por nome ou apelido..." oninput="cobsBuscar()" autocomplete="off">
@@ -729,7 +730,7 @@ tbody tr:hover td{background:var(--bg3)}
       </div>
       <div class="filter-bar">
         <select id="fm" onchange="cobsLimparVencer();renderCobs()"></select>
-        <select id="fs" onchange="cobsLimparVencer();renderCobs()">
+        <select id="fs" class="v3-hidden-filter" aria-label="Status das cobranças" tabindex="-1" onchange="cobsLimparVencer();renderCobs()">
           <option value="">Todos os status</option>
           <option value="pendente">Pendentes</option>
           <option value="pago">Pagas</option>
@@ -2034,7 +2035,7 @@ async function renderDash(){
           <td>${badgeSt(cb,'')}</td>
           <td><div class="btn-group">
             ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor}','${cb.vencimento}','${cb.mes_ref}',${cb.valor},'${cb.cliente_id}')"><i class="ti ti-check"></i> Pago</button>`:''}
-            ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')"><i class="ti ti-brand-whatsapp"></i></button>`:''}
+            ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')" title="Enviar cobrança pelo WhatsApp" aria-label="Enviar cobrança pelo WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>`:''}
           </div></td>
         </tr>`).join('')}</tbody></table>`;
     atualizarBadge();
@@ -2214,6 +2215,15 @@ async function renderCobs(vencerEmDias){
       const bp=document.getElementById('cobs-pagos-btn'); if(bp){ bp.disabled=!!fs||buscando; bp.title=buscando?'Na busca por cliente os pagos sempre aparecem':''; }
     }
     lista.sort(ordemVenc);
+    // Indicadores referentes aos resultados carregados com os filtros atuais.
+    const resumo = {total:lista.length,pendente:0,vencido:0,pago:0,cancelado:0};
+    lista.forEach(cb=>{if(Object.prototype.hasOwnProperty.call(resumo,cb.status))resumo[cb.status]++;});
+    const statsEl=document.getElementById('v3-cob-stats');
+    if(statsEl){
+      const itens=[['total','Exibidas','ti-list-details'],['pendente','Pendentes','ti-clock'],['vencido','Vencidas','ti-alert-triangle'],['pago','Pagas','ti-circle-check']];
+      statsEl.innerHTML=itens.map(([k,n,ico])=>`<div class="v3-stat v3-stat-${k}"><span class="v3-stat-label"><i class="ti ${ico}"></i> ${n}</span><strong>${resumo[k]}</strong></div>`).join('');
+      statsEl.title='Indicadores das cobranças carregadas com os filtros atuais; pagamentos ocultos não entram na contagem.';
+    }
 
     const hoje2 = new Date(); hoje2.setHours(0,0,0,0);
     const fmtISO2 = d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -2239,7 +2249,7 @@ async function renderCobs(vencerEmDias){
              : diasAteVenc <= 3  ? ` <span style="color:var(--amber);font-size:11px">${diasAteVenc}d</span>` : '')
             : '';
           return`<tr style="${destaque}">
-            <td style="font-weight:600"><span class="cli-link" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Ver pagamentos do cliente">${cb.cliente_nome}</span> ${badgeSt(cb,'margin-left:4px')}</td>
+            <td style="font-weight:600"><span class="cli-link" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Ver pagamentos do cliente">${cb.cliente_nome}</span></td>
             <td data-label="Servidor">${cb.servidor||'—'}</td>
             <td data-label="Venc.">${fmtD(cb.vencimento)}${vencLabel}</td>
             <td data-label="Pagto.">${cb.pago_em?fmtD(cb.pago_em):'—'}</td>
@@ -2249,8 +2259,8 @@ async function renderCobs(vencerEmDias){
               ${cb.status!=='pago'&&cb.status!=='cancelado'?`<button class="btn btn-sm btn-success" onclick="abrirPag('${cb.id}','${esc(cb.cliente_nome)}','${cb.servidor||''}','${cb.vencimento}','${cb.mes_ref}',${cb.valor},'${cb.cliente_id}')"><i class="ti ti-check"></i><span> Pago</span></button>`:''}
               ${cb.status==='pago'&&cb.cliente_id?`<button class="btn btn-sm" style="color:var(--purple);border-color:var(--purple)" onclick="abrirPag(null,'${esc(cb.cliente_nome)}','${esc(cb.servidor||'')}',null,null,${Number(cb.valor)||0},'${cb.cliente_id}')" title="Receber meses adiantados"><i class="ti ti-calendar-plus"></i><span> Adiantar</span></button>`:''}
               ${cb.status==='pendente'||cb.status==='vencido'?`<button class="btn btn-sm btn-wapp" onclick="abrirWapp('${cb.cliente_id}','${cb.status}')"><i class="ti ti-brand-whatsapp"></i></button>`:''}
-              ${cb.status!=='cancelado'&&cb.status!=='pago'?`<button class="btn btn-sm btn-danger" onclick="cancelCob('${cb.id}')"><i class="ti ti-x"></i></button>`:''}
-              <button class="btn btn-sm" style="color:var(--accent);border-color:var(--accent);margin-left:auto" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Histórico do cliente"><i class="ti ti-clock"></i></button>
+              ${cb.status!=='cancelado'&&cb.status!=='pago'?`<button class="btn btn-sm btn-danger" onclick="cancelCob('${cb.id}')" title="Cancelar cobrança" aria-label="Cancelar cobrança"><i class="ti ti-x"></i></button>`:''}
+              <button class="btn btn-sm" style="color:var(--accent);border-color:var(--accent);margin-left:auto" onclick="abrirHist('${cb.cliente_id}','${esc(cb.cliente_nome)}')" title="Histórico do cliente" aria-label="Histórico do cliente"><i class="ti ti-clock"></i></button>
             </div></td>
           </tr>`;
         }).join('')}</tbody></table>`;
